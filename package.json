@@ -1,0 +1,44 @@
+{
+  "name": "hyper-undo",
+  "version": "0.1.0",
+  "description": "DOM-state undo/redo via MutationObserver inverse-op replay. Standalone or paired with hyperclayjs.",
+  "keywords": [
+    "undo",
+    "redo",
+    "history",
+    "mutationobserver",
+    "dom",
+    "hyperclay"
+  ],
+  "homepage": "https://github.com/panphora/hyper-undo",
+  "bugs": {
+    "url": "https://github.com/panphora/hyper-undo/issues"
+  },
+  "license": "MIT",
+  "author": "David Miranda",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "dist",
+    "index.js",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "npx esbuild src/index.js --bundle --minify --format=iife --global-name=hyperundo --outfile=dist/hyper-undo.min.js",
+    "copy-to-hyperclayjs": "npm run build && node scripts/copy-to-hyperclayjs.js",
+    "test:node": "node --test 'test-node/**/*.test.js'",
+    "test": "npm run test:node",
+    "release": "./scripts/release.sh",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "jsdom": "^25.0.0"
+  }
+}
