@@ -33,11 +33,15 @@
     "build": "npx esbuild src/index.js --bundle --minify --format=iife --global-name=hyperundo --outfile=dist/hyper-undo.min.js",
     "copy-to-hyperclayjs": "npm run build && node scripts/copy-to-hyperclayjs.js",
     "test:node": "node --test 'test-node/**/*.test.js'",
+    "test:browser": "web-test-runner",
+    "test:all": "npm run test:node && npm run test:browser",
     "test": "npm run test:node",
     "release": "./scripts/release.sh",
     "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
+    "@open-wc/testing": "^4.0.0",
+    "@web/test-runner": "^0.20.2",
     "esbuild": "^0.25.0",
     "jsdom": "^25.0.0"
   }

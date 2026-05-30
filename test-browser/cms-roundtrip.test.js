@@ -1,5 +1,6 @@
 import { expect, fixture, html } from '@open-wc/testing'
 import { open, close, api } from '../../hypercms/src/hypercms.js'
+import Mutation from '../../hyperclayjs/src/utilities/mutation.js'
 import { undo } from '../src/index.js'
 
 // Full-stack roundtrip in a real browser: hypercms drives a structural edit,
@@ -7,11 +8,12 @@ import { undo } from '../src/index.js'
 // and the CMS refresh mechanism re-syncs the form.
 //
 // Requires the workspace's sibling packages (hyper-html-api, hyper-morph) to be
-// resolvable. See ./README.md for how to run.
+// resolvable, plus the hyperclayjs Mutation utility that hypercms's refresh
+// observer depends on (window.hyperclay.Mutation). See ./README.md for how to run.
 
 const FIXTURE = html`
   <div id="page">
-    <script id="hyper-html-api" data-rules-version="1" type="application/json">
+    <script id="hyper-html-api" data-rules-name="cms" data-rules-version="1" type="application/json">
       { "products": [".product", { "name": ".product-name" }] }
     </script>
     <div id="products">
@@ -26,6 +28,7 @@ describe('CMS undo roundtrip', () => {
     page = await fixture(FIXTURE)
     window.hyperclay = window.hyperclay || {}
     window.hyperclay.undo = undo
+    window.hyperclay.Mutation = Mutation
   })
   afterEach(() => {
     try { undo.stop() } catch {}
@@ -44,8 +47,9 @@ describe('CMS undo roundtrip', () => {
     undo.undo()
     expect(page.querySelectorAll('#products .product').length).to.equal(2)
     // The CMS page observer auto-fires cms.refresh() on the undo's page
-    // mutation; the form's product cards drop back to two.
-    await new Promise((r) => setTimeout(r, 50))
+    // mutation; the form's product cards drop back to two. Wait past the
+    // refresh observer's 100ms debounce (installObserver default).
+    await new Promise((r) => setTimeout(r, 250))
     expect(document.querySelectorAll('[data-hcms-card]').length).to.equal(2)
   })
 })
