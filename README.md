@@ -68,7 +68,7 @@ the box.
 | `undo.undo()` / `undo.redo()` | navigate history |
 | `undo.clear()` | clear both stacks |
 | `undo.pause()` / `undo.resume()` | recorder skips while paused |
-| `undo.on('change', fn)` / `undo.off('change', fn)` | subscribe to change events (fires after commit, undo, redo, clear) |
+| `undo.on('undo'\|'redo'\|'commit'\|'clear', fn)` / `undo.off(...)` | subscribe to lifecycle events; `undo`/`redo` fire after a navigate, `commit` after a new commit, `clear` after a reset. (No generic `change` event.) |
 | `undo.canUndo` / `undo.canRedo` | booleans (getters) |
 | `undo.history` | `[{ label, timestamp }, ...]`, oldest first; `timestamp` is `Date.now()` millis |
 | `undo.isPaused` | boolean (getter) |

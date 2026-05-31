@@ -103,7 +103,7 @@ export function createScope(opts) {
     redoStack.length = 0
     while (undoStack.length > config.maxHistory) undoStack.shift()
     log('commit', label, 'primitives:', primitives.length)
-    emitter.emit('change')
+    emitter.emit('commit')
   }
 
   // Explicit commit: caller-driven, synchronous fn.
@@ -122,7 +122,7 @@ export function createScope(opts) {
     // Drain records the observer hasn't fired callback for yet.
     handleRecords(observer.takeRecords())
     if (pendingPrimitives.length === 0) {
-      emitter.emit('change')
+      emitter.emit('commit')
       return
     }
     clearIdleTimer()
@@ -206,7 +206,7 @@ export function createScope(opts) {
     } finally { resume() }
     redoStack.push(c)
     log('undo', c.label)
-    emitter.emit('change')
+    emitter.emit('undo')
   }
 
   function redo() {
@@ -223,7 +223,7 @@ export function createScope(opts) {
     } finally { resume() }
     undoStack.push(c)
     log('redo', c.label)
-    emitter.emit('change')
+    emitter.emit('redo')
   }
 
   function clear() {
@@ -236,7 +236,7 @@ export function createScope(opts) {
     pendingPrimitives = []
     clearIdleTimer()
     log('cleared')
-    emitter.emit('change')
+    emitter.emit('clear')
   }
 
   // --- Public surface for the singleton wrapper ---

@@ -170,19 +170,34 @@ test('clear() empties both stacks', () => {
   assert.equal(scope.canRedo, false)
 })
 
-test('change event fires after commit, undo, redo, clear', () => {
+test('dedicated events fire after commit, undo, redo, clear', () => {
   const { doc, scope } = mkScope()
   scope.start()
-  let count = 0
-  const off = scope.on('change', () => { count++ })
+  const seen = []
+  const offs = [
+    scope.on('commit', () => seen.push('commit')),
+    scope.on('undo', () => seen.push('undo')),
+    scope.on('redo', () => seen.push('redo')),
+    scope.on('clear', () => seen.push('clear')),
+  ]
   scope.commit('A', () => doc.querySelector('h1').setAttribute('data-a', '1'))
   scope.undo()
   scope.redo()
   scope.clear()
-  assert.equal(count, 4)
-  off()
+  assert.deepEqual(seen, ['commit', 'undo', 'redo', 'clear'])
+  offs.forEach((off) => off())
   scope.commit('B', () => doc.querySelector('h1').setAttribute('data-b', '1'))
-  assert.equal(count, 4)   // unsubscribed
+  assert.deepEqual(seen, ['commit', 'undo', 'redo', 'clear'])  // unsubscribed
+})
+
+test('change event is no longer emitted', () => {
+  const { doc, scope } = mkScope()
+  scope.start()
+  let changed = 0
+  scope.on('change', () => { changed++ })
+  scope.commit('A', () => doc.querySelector('h1').setAttribute('data-a', '1'))
+  scope.undo()
+  assert.equal(changed, 0)
 })
 
 test('flush() closes a pending idle batch immediately; no-op when empty', async () => {

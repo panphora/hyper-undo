@@ -1,5 +1,14 @@
 # hyper-undo changelog
 
+## 0.2.0 — unreleased
+
+- **BREAKING:** the generic `change` event is removed and replaced by dedicated,
+  self-describing events: `undo` and `redo` (fire after a history navigate),
+  `commit` (after a new commit), and `clear` (after a reset). The event name is
+  the signal; payloads are unchanged (none). Subscribe with
+  `undo.on('undo', fn)` etc. A react-to-all consumer subscribes to all four.
+  Migration: replace `undo.on('change', fn)` with the specific event(s) you need.
+
 ## 0.1.0 — unreleased
 
 Initial release. DOM-state undo/redo via MutationObserver inverse-op replay.
