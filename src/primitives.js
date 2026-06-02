@@ -128,6 +128,12 @@ export function replayForward(p) {
     case 'text':
       p.target.data = p.newValue
       return
+    case 'value':
+      // An element PROPERTY write (e.g. input.value / checkbox.checked). These
+      // fire no MutationRecord, so they never arrive via the observer — a caller
+      // records them explicitly through scope.recordValue().
+      p.target[p.prop] = p.newValue
+      return
     case 'add':
       for (const node of p.nodes) {
         if (p.before && p.before.parentNode === p.parent) {
@@ -161,6 +167,9 @@ export function replayReverse(p) {
       return
     case 'text':
       p.target.data = p.oldValue
+      return
+    case 'value':
+      p.target[p.prop] = p.oldValue
       return
     case 'add':
       // forward was add → reverse is remove

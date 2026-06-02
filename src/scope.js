@@ -155,6 +155,26 @@ export function createScope(opts) {
     if (observer) observer.takeRecords()
   }
 
+  // --- Manual recording (for changes the observer can't see) ---
+
+  // Record a primitive the MutationObserver never delivers — an element PROPERTY
+  // write (input.value, checkbox.checked) fires no MutationRecord. The primitive
+  // joins the same idle batch as observed edits, so rapid same-field property
+  // writes coalesce into one commit exactly like text edits do. No-op while
+  // stopped or paused (a paused caller is inside an undo/redo replay or an
+  // exclusion frame, where injected primitives would be wrong).
+  function record(primitive) {
+    if (!started || pauseDepth > 0 || !primitive) return
+    pendingPrimitives.push(primitive)
+    restartIdleTimer()
+  }
+
+  // Convenience for the common case: a value/checked property write on an element.
+  function recordValue(target, { prop = 'value', oldValue, newValue } = {}) {
+    if (!target || oldValue === newValue) return
+    record({ kind: 'value', target, prop, oldValue, newValue })
+  }
+
   // Force-close current idle batch as its own commit. Used by undo()/redo() and
   // by the save seam (snapshot.js calls undo.flush() before cloning).
   function flush() {
@@ -245,6 +265,7 @@ export function createScope(opts) {
     _config: config,  // private: used by keys.js to read shadowKeydownIn
     start, stop,
     commit, commitCaptured, discardCaptured, flush,
+    record, recordValue,
     undo, redo, clear,
     pause, resume,
     on: emitter.on, off: emitter.off,

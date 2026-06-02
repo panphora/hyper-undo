@@ -7,6 +7,30 @@ function doc(html = '<!DOCTYPE html><body></body>') {
   return new JSDOM(html).window.document
 }
 
+// ----- replay: value (property write, observer-invisible) -----
+
+test('value: reverse restores oldValue, forward re-applies newValue (input.value)', () => {
+  const d = doc('<!DOCTYPE html><input id="x" />')
+  const el = d.getElementById('x')
+  el.value = 'new'
+  const p = { kind: 'value', target: el, prop: 'value', oldValue: 'old', newValue: 'new' }
+  replayReverse(p)
+  assert.equal(el.value, 'old')
+  replayForward(p)
+  assert.equal(el.value, 'new')
+})
+
+test('value: works on a non-default prop (checkbox.checked)', () => {
+  const d = doc('<!DOCTYPE html><input id="x" type="checkbox" />')
+  const el = d.getElementById('x')
+  el.checked = true
+  const p = { kind: 'value', target: el, prop: 'checked', oldValue: false, newValue: true }
+  replayReverse(p)
+  assert.equal(el.checked, false)
+  replayForward(p)
+  assert.equal(el.checked, true)
+})
+
 // ----- replay: attributes -----
 
 test('attr-set: reverse restores oldValue, forward re-applies newValue', () => {

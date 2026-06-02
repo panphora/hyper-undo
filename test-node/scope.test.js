@@ -323,3 +323,80 @@ test('a throwing ignoreAttribute predicate does not break recording', () => {
   scope.commit('keep', () => doc.getElementById('x').setAttribute('data-keep', '1'))
   assert.equal(scope.history.length, 1)
 })
+
+// ----- recordValue: manual recording of observer-invisible property writes -----
+
+function mkInput(opts = {}) {
+  const dom = makeDom('<!DOCTYPE html><body><input id="i" value="A" /></body>')
+  const scope = createScope({ scope: dom.window.document.body, idleWindowMs: 20, ...opts })
+  return { dom, doc: dom.window.document, scope, input: dom.window.document.getElementById('i') }
+}
+
+test('recordValue records one Edit; undo reverts the value, redo re-applies', async () => {
+  const { scope, input } = mkInput()
+  scope.start()
+  input.value = 'AB'                              // a property write — observer sees nothing
+  scope.recordValue(input, { oldValue: 'A', newValue: 'AB' })
+  await tick(40)
+  assert.equal(scope.history.length, 1)
+  assert.equal(scope.history[0].label, 'Edit')
+  scope.undo()
+  assert.equal(input.value, 'A')
+  scope.redo()
+  assert.equal(input.value, 'AB')
+})
+
+test('rapid recordValue on the same input coalesces into ONE step', async () => {
+  const { scope, input } = mkInput()
+  scope.start()
+  input.value = 'AB'; scope.recordValue(input, { oldValue: 'A', newValue: 'AB' })
+  input.value = 'ABC'; scope.recordValue(input, { oldValue: 'AB', newValue: 'ABC' })
+  await tick(40)
+  assert.equal(scope.history.length, 1)
+  scope.undo()                                    // one undo walks the whole batch back
+  assert.equal(input.value, 'A')
+})
+
+test('recordValue with oldValue === newValue records nothing', async () => {
+  const { scope, input } = mkInput()
+  scope.start()
+  scope.recordValue(input, { oldValue: 'A', newValue: 'A' })
+  await tick(40)
+  assert.equal(scope.history.length, 0)
+})
+
+test('record() is a no-op while paused', async () => {
+  const { scope, input } = mkInput()
+  scope.start()
+  scope.pause()
+  scope.recordValue(input, { oldValue: 'A', newValue: 'AB' })
+  scope.resume()
+  await tick(40)
+  assert.equal(scope.history.length, 0)
+})
+
+test('a recordValue flushes BEFORE a following commitCaptured (ordering preserved)', async () => {
+  const { doc, scope, input } = mkInput()
+  scope.start()
+  input.value = 'AB'
+  scope.recordValue(input, { oldValue: 'A', newValue: 'AB' })   // pending idle batch
+  await tick(5)                                                  // < idleWindowMs
+  scope.pause()
+  const p = doc.createElement('p'); p.id = 'added'; doc.body.appendChild(p)
+  scope.commitCaptured('Add p')
+  scope.resume()
+  assert.deepEqual(scope.history.map(c => c.label), ['Edit', 'Add p'])
+})
+
+test('recordValue handles a non-default prop (checkbox.checked)', async () => {
+  const dom = makeDom('<!DOCTYPE html><body><input id="c" type="checkbox" /></body>')
+  const scope = createScope({ scope: dom.window.document.body, idleWindowMs: 20 })
+  const box = dom.window.document.getElementById('c')
+  scope.start()
+  box.checked = true
+  scope.recordValue(box, { prop: 'checked', oldValue: false, newValue: true })
+  await tick(40)
+  assert.equal(scope.history.length, 1)
+  scope.undo()
+  assert.equal(box.checked, false)
+})
