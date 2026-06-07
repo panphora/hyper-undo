@@ -1,6 +1,6 @@
 {
   "name": "hyper-undo",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DOM-state undo/redo via MutationObserver inverse-op replay. Standalone or paired with hyperclayjs.",
   "keywords": [
     "undo",

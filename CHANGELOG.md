@@ -1,5 +1,9 @@
 # hyper-undo changelog
 
+## [0.3.0] - 2026-06-07
+
+
+
 ## 0.2.0 — unreleased
 
 - **BREAKING:** the generic `change` event is removed and replaced by dedicated,
