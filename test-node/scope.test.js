@@ -283,9 +283,12 @@ test('commit() closes a same-tick pending edit as its own Edit before the explic
   assert.equal(h1.textContent, 'Hi')
 })
 
-// --- all four ignore attributes are load-bearing ---
+// --- every not-undoable region attribute is load-bearing (legacy + new) ---
+// no-save / no-trigger-autosave / freeze are intentionally absent: those regions
+// ARE undoable in the capability model. This is the standalone fallback path
+// (no window.hyperclay here, so filter.js uses its local marker list).
 
-for (const attr of ['mutations-ignore', 'save-remove', 'save-ignore', 'save-freeze']) {
+for (const attr of ['mutations-ignore', 'save-remove', 'save-ignore', 'save-freeze', 'no-undo', 'no-watch']) {
   test(`mutations inside a [${attr}] subtree are skipped`, async () => {
     const { doc, scope } = mkScope(`<!DOCTYPE html><body><div ${attr}><span id="s">x</span></div><h1>Hi</h1></body>`)
     scope.start()
@@ -293,6 +296,18 @@ for (const attr of ['mutations-ignore', 'save-remove', 'save-ignore', 'save-free
     await tick(40)
     assert.equal(scope.history.length, 0)
     doc.querySelector('h1').textContent = 'changed'
+    await tick(40)
+    assert.equal(scope.history.length, 1)
+  })
+}
+
+// no-save / no-trigger-autosave / freeze regions ARE undoable (model: only
+// no-undo/no-watch suppress recording). Guards against them creeping into the list.
+for (const attr of ['no-save', 'no-trigger-autosave', 'freeze']) {
+  test(`mutations inside a [${attr}] subtree ARE recorded (region stays undoable)`, async () => {
+    const { doc, scope } = mkScope(`<!DOCTYPE html><body><div ${attr}><span id="s">x</span></div></body>`)
+    scope.start()
+    doc.getElementById('s').textContent = 'changed'
     await tick(40)
     assert.equal(scope.history.length, 1)
   })

@@ -30,7 +30,7 @@ export function createScope(opts) {
   function start() {
     if (started) return
     started = true
-    observer = new MutationObserver(handleRecords)
+    observer = createRecordSource(handleRecords)
     observer.observe(config.scope, {
       childList: true,
       attributes: true,
@@ -40,6 +40,23 @@ export function createScope(opts) {
       characterDataOldValue: true,
     })
     log('started')
+  }
+
+  // Choose the record source ONCE. Paired with hyperclayjs AND watching the
+  // document.body singleton, source records from the platform's single shared
+  // observer (Mutation.createObserver) so the page runs ONE MutationObserver.
+  // Otherwise — standalone, or a created shadow/CodeMirror scope — use a real
+  // MutationObserver. The result is duck-typed: only observe / disconnect /
+  // takeRecords are touched, and the shared hub observes with options identical
+  // to the ones above, so nothing here needs to change between the two paths.
+  function createRecordSource(handler) {
+    const isBodySingleton = typeof document !== 'undefined' && config.scope === document.body
+    const hub = (typeof window !== 'undefined' && window.hyperclay && window.hyperclay.Mutation) || null
+    if (isBodySingleton && hub && typeof hub.createObserver === 'function') {
+      log('sourcing records from window.hyperclay.Mutation (shared observer)')
+      return hub.createObserver(handler)
+    }
+    return new MutationObserver(handler)
   }
 
   function stop() {
@@ -65,7 +82,12 @@ export function createScope(opts) {
   // --- Observer callback ---
 
   function handleRecords(records) {
-    if (pauseDepth > 0) return  // records remain in observer buffer until takeRecords() is called
+    // While paused, these callback-delivered records are DROPPED — they have
+    // already left the observer's buffer, so they're gone. resume()'s
+    // takeRecords() separately purges only the remainder that was never
+    // delivered. Those two halves together are the pause contract, and the
+    // shimmed (paired) path reproduces both.
+    if (pauseDepth > 0) return
     const prims = convertRecords(records)
     if (prims.length > 0) {
       for (const p of prims) pendingPrimitives.push(p)
