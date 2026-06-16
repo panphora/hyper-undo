@@ -1,5 +1,13 @@
 # hyper-undo changelog
 
+## [0.4.0] - 2026-06-16
+
+### Changed
+- Integrated the region capability model into hyper-undo
+- Adopted a shared MutationObserver in hyper-undo
+
+
+
 ## [0.3.0] - 2026-06-07
 
 
