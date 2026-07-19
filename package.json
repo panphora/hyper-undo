@@ -45,5 +45,10 @@
   "devDependencies": {
     "esbuild": "^0.25.0",
     "jsdom": "^25.0.0"
+  },
+  "hyper": {
+    "kind": "lib",
+    "status": "active",
+    "url": "https://github.com/panphora/hyper-undo"
   }
 }
