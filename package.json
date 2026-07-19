@@ -15,6 +15,10 @@
     "url": "https://github.com/panphora/hyper-undo/issues"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/panphora/hyper-undo.git"
+  },
   "author": "David Miranda",
   "type": "module",
   "main": "src/index.js",
