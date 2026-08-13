@@ -4,10 +4,11 @@
 // browser-extension content), when the record is an extension marker attribute,
 // or when the caller's ignoreAttributePredicate rejects it.
 //
-// When paired with hyperclayjs we delegate the region decision to the SAME
-// resolver the platform ships (window.hyperclay.region.resolveRegionPolicy), so
-// undo and the platform can never drift. Standalone (no hyperclay on window) we
-// fall back to a local marker walk that mirrors the resolver's `undoable` axis.
+// When paired with a platform client we delegate the region decision to the SAME
+// resolver it ships (clay.region.resolveRegionPolicy under clayjs,
+// hyperclay.region.resolveRegionPolicy under hyperclayjs), so undo and the platform
+// can never drift. Standalone (neither on window) we fall back to a local marker
+// walk that mirrors the resolver's `undoable` axis.
 
 import { EXTENSION_NODE_SELECTOR, EXTENSION_ATTR_PATTERN } from './extension-noise.js'
 
@@ -18,9 +19,10 @@ import { EXTENSION_NODE_SELECTOR, EXTENSION_ATTR_PATTERN } from './extension-noi
 const IGNORE_ATTRS = ['mutations-ignore', 'save-remove', 'save-ignore', 'save-freeze', 'no-undo', 'no-watch']
 
 function sharedResolver() {
-  return (typeof window !== 'undefined' && window.hyperclay && window.hyperclay.region &&
-    typeof window.hyperclay.region.resolveRegionPolicy === 'function')
-    ? window.hyperclay.region.resolveRegionPolicy
+  if (typeof window === 'undefined') return null
+  const region = window.clay?.region || window.hyperclay?.region
+  return region && typeof region.resolveRegionPolicy === 'function'
+    ? region.resolveRegionPolicy
     : null
 }
 

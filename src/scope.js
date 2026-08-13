@@ -51,9 +51,10 @@ export function createScope(opts) {
   // to the ones above, so nothing here needs to change between the two paths.
   function createRecordSource(handler) {
     const isBodySingleton = typeof document !== 'undefined' && config.scope === document.body
-    const hub = (typeof window !== 'undefined' && window.hyperclay && window.hyperclay.Mutation) || null
+    const hub = (typeof window !== 'undefined' &&
+      (window.clay?.Mutation || window.hyperclay?.Mutation)) || null
     if (isBodySingleton && hub && typeof hub.createObserver === 'function') {
-      log('sourcing records from window.hyperclay.Mutation (shared observer)')
+      log('sourcing records from the platform Mutation hub (shared observer)')
       return hub.createObserver(handler)
     }
     return new MutationObserver(handler)
