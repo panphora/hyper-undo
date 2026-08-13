@@ -1,5 +1,20 @@
 # hyper-undo changelog
 
+## [0.5.0] - 2026-08-12
+
+### Added
+- Script to copy the built bundle to clayjs
+- `kind`, `status`, and `url` declarations in the hyper key
+
+### Changed
+- Platform namespace is now read off `window.clay` in addition to `hyperclay`
+- Updated hyper-undo
+
+### Fixed
+- Documentation that blocked outside users
+
+
+
 ## [0.4.0] - 2026-06-16
 
 ### Changed
