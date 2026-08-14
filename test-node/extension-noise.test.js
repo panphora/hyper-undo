@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeDom, tick } from './_setup.js'
+import { makeDom, tick, nextCommit } from './_setup.js'
 import { createScope } from '../src/scope.js'
 import { EXTENSION_NODE_SELECTORS, EXTENSION_ATTR_PATTERN } from '../src/extension-noise.js'
 
@@ -44,7 +44,7 @@ test('control: a normal element insert still records (no over-broadening)', asyn
   const { doc, scope } = mkScope('<!DOCTYPE html><body><div id="real"></div></body>')
   scope.start()
   doc.getElementById('real').appendChild(doc.createElement('p'))
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
 })
 

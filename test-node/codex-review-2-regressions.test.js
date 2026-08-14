@@ -3,7 +3,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeDom, tick } from './_setup.js'
+import { makeDom, nextCommit } from './_setup.js'
 import { createScope } from '../src/scope.js'
 import { undo } from '../src/index.js'
 
@@ -97,7 +97,7 @@ test('#5: stop() resets pause depth (a restarted scope is not stuck paused)', as
   scope.start()
   assert.equal(scope.isPaused, false, 'restart is not stuck paused')
   doc.getElementById('h').textContent = 'After restart'
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.canUndo, true, 'recording works again after restart')
   scope.stop()
 })

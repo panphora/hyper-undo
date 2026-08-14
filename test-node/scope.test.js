@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeDom, tick } from './_setup.js'
+import { makeDom, tick, nextCommit } from './_setup.js'
 import { createScope } from '../src/scope.js'
 
 function mkScope(html = '<!DOCTYPE html><body><h1>Hi</h1></body>', opts = {}) {
@@ -13,7 +13,7 @@ test('idle auto-batch produces one Edit commit per pause', async () => {
   const { doc, scope } = mkScope()
   scope.start()
   doc.querySelector('h1').textContent = 'Hello'
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
   assert.equal(scope.history[0].label, 'Edit')
   assert.equal(typeof scope.history[0].timestamp, 'number')
@@ -24,7 +24,7 @@ test('undo restores prior text, redo re-applies', async () => {
   scope.start()
   const h1 = doc.querySelector('h1')
   h1.textContent = 'Hello'
-  await tick(40)
+  await nextCommit(scope)
   scope.undo()
   assert.equal(h1.textContent, 'Hi')
   assert.equal(scope.canUndo, false)
@@ -110,7 +110,7 @@ test('mutations while paused are not recorded', async () => {
   assert.equal(scope.history.length, 0)
   scope.resume()
   doc.querySelector('h1').textContent = 'Seen'
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
 })
 
@@ -121,7 +121,7 @@ test('mutations inside a save-ignore subtree are skipped', async () => {
   await tick(40)
   assert.equal(scope.history.length, 0)
   doc.querySelector('h1').textContent = 'changed'
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
 })
 
@@ -142,7 +142,7 @@ test('start() twice is a no-op and recording still works once', async () => {
   scope.start()
   scope.start()
   doc.querySelector('h1').textContent = 'Hello'
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
 })
 
@@ -296,7 +296,7 @@ for (const attr of ['mutations-ignore', 'save-remove', 'save-ignore', 'save-free
     await tick(40)
     assert.equal(scope.history.length, 0)
     doc.querySelector('h1').textContent = 'changed'
-    await tick(40)
+    await nextCommit(scope)
     assert.equal(scope.history.length, 1)
   })
 }
@@ -308,7 +308,7 @@ for (const attr of ['no-save', 'no-trigger-autosave', 'freeze']) {
     const { doc, scope } = mkScope(`<!DOCTYPE html><body><div ${attr}><span id="s">x</span></div></body>`)
     scope.start()
     doc.getElementById('s').textContent = 'changed'
-    await tick(40)
+    await nextCommit(scope)
     assert.equal(scope.history.length, 1)
   })
 }
@@ -352,7 +352,7 @@ test('recordValue records one Edit; undo reverts the value, redo re-applies', as
   scope.start()
   input.value = 'AB'                              // a property write — observer sees nothing
   scope.recordValue(input, { oldValue: 'A', newValue: 'AB' })
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
   assert.equal(scope.history[0].label, 'Edit')
   scope.undo()
@@ -366,7 +366,7 @@ test('rapid recordValue on the same input coalesces into ONE step', async () => 
   scope.start()
   input.value = 'AB'; scope.recordValue(input, { oldValue: 'A', newValue: 'AB' })
   input.value = 'ABC'; scope.recordValue(input, { oldValue: 'AB', newValue: 'ABC' })
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
   scope.undo()                                    // one undo walks the whole batch back
   assert.equal(input.value, 'A')
@@ -410,7 +410,7 @@ test('recordValue handles a non-default prop (checkbox.checked)', async () => {
   scope.start()
   box.checked = true
   scope.recordValue(box, { prop: 'checked', oldValue: false, newValue: true })
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
   scope.undo()
   assert.equal(box.checked, false)

@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeDom, tick } from './_setup.js'
+import { makeDom, tick, nextCommit } from './_setup.js'
 import { createScope } from '../src/scope.js'
 
 test('the region resolver is read off window.clay', async () => {
@@ -31,7 +31,7 @@ test('the region resolver is read off window.clay', async () => {
   assert.equal(scope.history.length, 0)
 
   doc.querySelector('h1').textContent = 'changed'
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
 })
 

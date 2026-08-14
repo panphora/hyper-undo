@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeDom, tick } from './_setup.js'
+import { makeDom, tick, nextCommit } from './_setup.js'
 import { createScope } from '../src/scope.js'
 
 function mkScope(html = '<!DOCTYPE html><body><h1>Hi</h1></body>', opts = {}) {
@@ -42,7 +42,7 @@ test('an idle batch closing after an undo clears the redo stack', async () => {
   scope.undo()
   assert.equal(scope.canRedo, true)
   doc.querySelector('h1').textContent = 'newtyping'
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.canRedo, false)
 })
 
@@ -64,7 +64,7 @@ test('typing several characters coalesces into one Edit commit', async () => {
     node.data = s
     await tick(2)   // faster than idleWindowMs so they batch together
   }
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.history.length, 1)
   assert.equal(scope.history[0].label, 'Edit')
   scope.undo()

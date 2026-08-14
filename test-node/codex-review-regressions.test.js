@@ -3,7 +3,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeDom, tick } from './_setup.js'
+import { makeDom, tick, nextCommit } from './_setup.js'
 import { createScope } from '../src/scope.js'
 import { undo } from '../src/index.js'
 
@@ -30,7 +30,7 @@ test('C1: a normal append under the same parent still records and undoes', async
   scope.start()
   const div = doc.createElement('div')
   doc.body.appendChild(div)
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.canUndo, true)
   scope.undo()
   assert.equal(div.parentNode, null, 'normal append is undoable')
@@ -48,7 +48,7 @@ test('C1: a single childList record with mixed nodes keeps only the un-ignored o
   const frag = doc.createDocumentFragment()
   frag.append(keep, ignore)
   doc.body.appendChild(frag)
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.canUndo, true)
   scope.undo()
   assert.equal(keep.parentNode, null, 'kept node is undone')
@@ -68,7 +68,7 @@ test('H1: flush() bounds the batch; undo after a later edit stops at the save po
   assert.equal(scope.canUndo, true, 'flush() closes the pre-save mutation as its own commit')
   await tick(5)
   el.setAttribute('data-title', 'after')   // a later edit
-  await tick(40)
+  await nextCommit(scope)
   scope.undo()
   assert.equal(el.getAttribute('data-title'), 'saved', 'undo stops at the save boundary, not before it')
   scope.stop()
@@ -111,7 +111,7 @@ test('H3: nested pause needs matching resumes before recording resumes', async (
   scope.resume()                  // depth 0
   assert.equal(scope.isPaused, false)
   h1.textContent = 'seen'
-  await tick(40)
+  await nextCommit(scope)
   assert.equal(scope.canUndo, true, 'recording resumes after the outermost release')
   scope.stop()
 })

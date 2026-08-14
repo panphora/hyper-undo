@@ -69,3 +69,16 @@ export function makeDom(html = '<!DOCTYPE html><html><head></head><body></body><
 export function tick(ms = 30) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+// Wait for the scope's next 'commit' instead of guessing at the idle window.
+// pushCommit pushes to undoStack BEFORE it emits, so scope.history is already
+// consistent when this resolves. Only usable where a commit is EXPECTED: a test
+// asserting that nothing was recorded still has to wait wall-clock, because a
+// non-event cannot be awaited.
+export function nextCommit(scope, ms = 2000) {
+  return new Promise((resolve) => {
+    let timer = null
+    const off = scope.on('commit', () => { clearTimeout(timer); off(); resolve(true) })
+    timer = setTimeout(() => { off(); resolve(false) }, ms)
+  })
+}
