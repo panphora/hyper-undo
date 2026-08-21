@@ -1,5 +1,16 @@
 # hyper-undo changelog
 
+## [0.5.1] - 2026-08-21
+
+### Added
+- CONTRIBUTING.md stating that contributions are accepted under MIT-0
+
+### Changed
+- Relicensed from MIT to MIT-0 (MIT No Attribution); attribution is no longer required
+- Node tests now await the scope's next `commit` event (`nextCommit` helper) instead of fixed wall-clock waits, making the suite less timing-sensitive
+
+
+
 ## [Unreleased]
 
 ### Changed
