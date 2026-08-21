@@ -158,7 +158,7 @@ raw typing into a field isn't directly observable. Coverage:
 
 - **CMS form fields** flow through the engine, which mutates the page DOM — the
   recorder sees the page mutation. ✓
-- **`[persist]` inputs** on a Hyperclay page mirror `el.value` to the `value`
+- **`[persist]` inputs** on a Hyperclay™ page mirror `el.value` to the `value`
   attribute; **`[persist]` textareas** mirror to `data-value`. The recorder sees
   the attribute mutation. ✓
 - **Plain `<input>`/`<textarea>` without `[persist]`** do NOT mirror; their
@@ -176,4 +176,4 @@ of non-DOM state, no "revert to saved" checkpoint.
 
 ## License
 
-MIT
+MIT-0 (MIT No Attribution).

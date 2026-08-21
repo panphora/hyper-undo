@@ -14,7 +14,7 @@
   "bugs": {
     "url": "https://github.com/panphora/hyper-undo/issues"
   },
-  "license": "MIT",
+  "license": "MIT-0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/panphora/hyper-undo.git"

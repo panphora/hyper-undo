@@ -1,5 +1,10 @@
 # hyper-undo changelog
 
+## [Unreleased]
+
+### Changed
+- License: relicensed to MIT-0 (MIT No Attribution). Same rights, attribution no longer required.
+
 ## [0.5.0] - 2026-08-12
 
 ### Added
