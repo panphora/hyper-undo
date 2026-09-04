@@ -9,6 +9,14 @@ const DEFAULT_SHADOW_LIST = [
   '.ql-editor',
   '.tiptap',
   '.ProseMirror',
+  // richclay marks its live region with this and stamps no-undo on it, so the
+  // page-level stack holds no record of what was typed there. Without the
+  // bypass, Cmd+Z inside a richclay editor never reached Squire: it either did
+  // nothing or reverted an unrelated earlier edit elsewhere on the page.
+  // richclay has always intended this; see the comment on setupEditorAttributes
+  // in richclay/src/richclay.js, which says it marks the region so hyper-undo
+  // "defers to Squire instead of fighting it".
+  '[data-richclay-active]',
 ]
 
 let singleton = null         // the Scope instance returned by createScope

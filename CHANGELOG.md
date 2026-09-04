@@ -1,5 +1,10 @@
 # hyper-undo changelog
 
+## [0.5.2] - 2026-09-04
+
+### Fixed
+- Undo and redo inside a live richclay text region now reach the editor instead of the page. `[data-richclay-active]` joins the default `shadowKeydownIn` list, alongside CodeMirror, Monaco, Ace, Quill, TipTap and ProseMirror. richclay stamps `no-undo` on its region, so the page-level stack holds no record of what was typed there; the capture-phase key handler nevertheless swallowed Cmd+Z, which meant the keystroke never reached the editor's own stack and the page instead reverted an unrelated earlier edit. richclay has always intended this deferral, and this is the other half of it.
+
 ## [0.5.1] - 2026-08-21
 
 ### Added

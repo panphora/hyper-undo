@@ -2,8 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeDom } from './_setup.js'
 import { installKeys } from '../src/keys.js'
+import undo from '../src/index.js'
 
-const DEFAULT_SHADOW = ['.CodeMirror', '.cm-editor', '.monaco-editor', '.ace_editor', '.ql-editor', '.tiptap', '.ProseMirror']
+// Derived from the shipped default, not a copy of it. A hand-maintained copy
+// drifts, and then every bypass test here passes while proving nothing about
+// what the library actually ships.
+const DEFAULT_SHADOW = undo.defaults.shadowKeydownIn
 
 function fakeScope() {
   const calls = []
@@ -113,4 +117,27 @@ test('cleanup removes the listener', () => {
   cleanup()
   press(dom, dom.window.document.getElementById('t'), { key: 'z', metaKey: true })
   assert.deepEqual(scope.calls, [])
+})
+
+// richclay owns its own undo stack (Squire) and stamps no-undo on the region, so
+// hyper-undo records nothing typed there. Before this selector was in the default
+// list, the capture-phase handler still swallowed Cmd+Z: the keystroke never
+// reached Squire, and the page stack reverted some earlier unrelated edit instead.
+test('target inside a live richclay region bypasses, so Squire gets the key', () => {
+  const dom = makeDom(
+    '<!DOCTYPE html><body><h1 data-richclay-active="true" no-undo><span id="cm">x</span></h1></body>'
+  )
+  const scope = fakeScope()
+  const cleanup = installKeys(scope)
+  const ev = press(dom, dom.window.document.getElementById('cm'), { key: 'z', metaKey: true })
+  assert.deepEqual(scope.calls, [], 'the page-level stack must not act')
+  assert.equal(ev.defaultPrevented, false, 'and the key must be left for the editor')
+  cleanup()
+})
+
+test('the shipped default actually carries the richclay selector', () => {
+  assert.ok(
+    undo.defaults.shadowKeydownIn.includes('[data-richclay-active]'),
+    'the bypass above proves nothing if the shipped default omits it'
+  )
 })
