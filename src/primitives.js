@@ -155,20 +155,30 @@ export function replayForward(p) {
 
 // Reverse replay. Used by undo().
 export function replayReverse(p) {
+  // A step only replays while the change it describes is still standing. With
+  // live sync the value can have moved on since it was recorded, and writing the
+  // old one back would not undo the person's own edit, it would overwrite
+  // somebody else's newer one. Skipping is the lesser surprise: an undo press
+  // that appears to do nothing costs a moment, an overwrite costs their work.
   switch (p.kind) {
     case 'attr-set':
+      if (p.target.getAttribute(p.name) !== p.newValue) return
       p.target.setAttribute(p.name, p.oldValue)
       return
     case 'attr-add':
+      if (p.target.getAttribute(p.name) !== p.newValue) return
       p.target.removeAttribute(p.name)
       return
     case 'attr-remove':
+      if (p.target.hasAttribute(p.name)) return
       p.target.setAttribute(p.name, p.oldValue)
       return
     case 'text':
+      if (p.target.data !== p.newValue) return
       p.target.data = p.oldValue
       return
     case 'value':
+      if (p.target[p.prop] !== p.newValue) return
       p.target[p.prop] = p.oldValue
       return
     case 'add':

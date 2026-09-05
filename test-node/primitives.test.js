@@ -255,3 +255,96 @@ test('recordToPrimitives: childList with both added and removed → two primitiv
   assert.equal(out[1].kind, 'remove')
   assert.deepEqual(out[1].nodes, [removed])
 })
+
+// ----- replayReverse guard: a step only replays while its change still stands -----
+
+test('value guard: reverse applies while the property still holds newValue', () => {
+  const d = doc('<!DOCTYPE html><input id="x" />')
+  const el = d.getElementById('x')
+  el.value = 'Local'
+  const p = { kind: 'value', target: el, prop: 'value', oldValue: 'Original', newValue: 'Local' }
+  replayReverse(p)
+  assert.equal(el.value, 'Original')
+})
+
+test('value guard: reverse is skipped once the property has moved on', () => {
+  const d = doc('<!DOCTYPE html><input id="x" />')
+  const el = d.getElementById('x')
+  const p = { kind: 'value', target: el, prop: 'value', oldValue: 'Original', newValue: 'Local' }
+  el.value = 'Peer'
+  replayReverse(p)
+  assert.equal(el.value, 'Peer')
+})
+
+test('text guard: reverse applies while the node still holds newValue', () => {
+  const d = doc('<!DOCTYPE html><p id="x">Original</p>')
+  const node = d.getElementById('x').firstChild
+  node.data = 'Local'
+  const p = { kind: 'text', target: node, oldValue: 'Original', newValue: 'Local' }
+  replayReverse(p)
+  assert.equal(node.data, 'Original')
+})
+
+test('text guard: reverse is skipped once the text has moved on', () => {
+  const d = doc('<!DOCTYPE html><p id="x">Original</p>')
+  const node = d.getElementById('x').firstChild
+  const p = { kind: 'text', target: node, oldValue: 'Original', newValue: 'Local' }
+  node.data = 'Peer'
+  replayReverse(p)
+  assert.equal(node.data, 'Peer')
+})
+
+test('attr-set guard: reverse applies while the attribute still holds newValue', () => {
+  const d = doc('<!DOCTYPE html><div id="x" data-foo="Original"></div>')
+  const el = d.getElementById('x')
+  el.setAttribute('data-foo', 'Local')
+  const p = { kind: 'attr-set', target: el, name: 'data-foo', oldValue: 'Original', newValue: 'Local' }
+  replayReverse(p)
+  assert.equal(el.getAttribute('data-foo'), 'Original')
+})
+
+test('attr-set guard: reverse is skipped once the attribute has moved on', () => {
+  const d = doc('<!DOCTYPE html><div id="x" data-foo="Original"></div>')
+  const el = d.getElementById('x')
+  const p = { kind: 'attr-set', target: el, name: 'data-foo', oldValue: 'Original', newValue: 'Local' }
+  el.setAttribute('data-foo', 'Peer')
+  replayReverse(p)
+  assert.equal(el.getAttribute('data-foo'), 'Peer')
+})
+
+test('attr-add guard: reverse applies while the added attribute still holds newValue', () => {
+  const d = doc('<!DOCTYPE html><div id="x"></div>')
+  const el = d.getElementById('x')
+  el.setAttribute('data-new', 'Local')
+  const p = { kind: 'attr-add', target: el, name: 'data-new', newValue: 'Local' }
+  replayReverse(p)
+  assert.equal(el.hasAttribute('data-new'), false)
+})
+
+test('attr-add guard: reverse is skipped once the added attribute has moved on', () => {
+  const d = doc('<!DOCTYPE html><div id="x"></div>')
+  const el = d.getElementById('x')
+  const p = { kind: 'attr-add', target: el, name: 'data-new', newValue: 'Local' }
+  el.setAttribute('data-new', 'Peer')
+  replayReverse(p)
+  assert.equal(el.getAttribute('data-new'), 'Peer')
+})
+
+test('attr-remove guard: reverse applies while the attribute is still absent', () => {
+  const d = doc('<!DOCTYPE html><div id="x" data-gone="Original"></div>')
+  const el = d.getElementById('x')
+  el.removeAttribute('data-gone')
+  const p = { kind: 'attr-remove', target: el, name: 'data-gone', oldValue: 'Original' }
+  replayReverse(p)
+  assert.equal(el.getAttribute('data-gone'), 'Original')
+})
+
+test('attr-remove guard: reverse is skipped once the attribute is back', () => {
+  const d = doc('<!DOCTYPE html><div id="x" data-gone="Original"></div>')
+  const el = d.getElementById('x')
+  el.removeAttribute('data-gone')
+  const p = { kind: 'attr-remove', target: el, name: 'data-gone', oldValue: 'Original' }
+  el.setAttribute('data-gone', 'Peer')
+  replayReverse(p)
+  assert.equal(el.getAttribute('data-gone'), 'Peer')
+})
