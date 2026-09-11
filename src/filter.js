@@ -11,6 +11,7 @@
 // walk that mirrors the resolver's `undoable` axis.
 
 import { EXTENSION_NODE_SELECTOR, EXTENSION_ATTR_PATTERN } from './extension-noise.js'
+import { expandsTo, hasPolicyToken, isPolicyAttribute } from './lib/region-capabilities.js'
 
 // Local fallback: attributes whose region is NOT undoable. The new no-save /
 // no-trigger-autosave / freeze are deliberately ABSENT — those regions ARE
@@ -30,23 +31,40 @@ function sharedResolver() {
 function regionNotUndoable(node) {
   const resolve = sharedResolver()
   if (resolve) {
-    try { return !resolve(node).undoable }
+    try { if (!resolve(node).undoable) return true }
     catch (_) { /* fall through to the local walk */ }
   }
   let el = (node && node.nodeType !== 1) ? node.parentElement : node
   // Browser-extension injected elements (and their descendants) are not page content.
   if (el && el.closest && el.closest(EXTENSION_NODE_SELECTOR)) return true
   while (el && el.nodeType === 1) {
-    for (const attr of IGNORE_ATTRS) {
-      if (el.hasAttribute && el.hasAttribute(attr)) return true
-    }
+    if (expandsTo(el, 'no-undo') || expandsTo(el, 'no-watch')) return true
+    for (const attr of IGNORE_ATTRS) if (hasPolicyToken(el, attr)) return true
     el = el.parentElement
   }
   return false
 }
 
+function regionWasNotUndoable(record) {
+  let source = record.target
+  let clone = source.cloneNode(false)
+  const leaf = clone
+  while (source.parentElement) {
+    source = source.parentElement
+    const parent = source.cloneNode(false)
+    parent.appendChild(clone)
+    clone = parent
+  }
+  if (record.oldValue == null) leaf.removeAttribute(record.attributeName)
+  else leaf.setAttribute(record.attributeName, record.oldValue)
+  return regionNotUndoable(leaf)
+}
+
 export function shouldIgnore(node, ignoreAttributePredicate, record) {
-  if (regionNotUndoable(node)) return true
+  const policyTransition = record?.type === 'attributes' && isPolicyAttribute(record.attributeName)
+  if (policyTransition) {
+    if (regionNotUndoable(node) && regionWasNotUndoable(record)) return true
+  } else if (regionNotUndoable(node)) return true
 
   if (record && record.type === 'attributes') {
     // Extension marker attributes on a real element (password-manager field tags) are noise.

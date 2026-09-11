@@ -193,9 +193,9 @@ export function createScope(opts) {
   }
 
   // Convenience for the common case: a value/checked property write on an element.
-  function recordValue(target, { prop = 'value', oldValue, newValue } = {}) {
+  function recordValue(target, { prop = 'value', oldValue, newValue, read, write } = {}) {
     if (!target || oldValue === newValue) return
-    record({ kind: 'value', target, prop, oldValue, newValue })
+    record({ kind: 'value', target, prop, oldValue, newValue, read, write })
   }
 
   // Force-close current idle batch as its own commit. Used by undo()/redo() and

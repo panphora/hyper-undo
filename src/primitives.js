@@ -37,6 +37,10 @@ export function recordToPrimitives(record, ignoreNode = null) {
   if (record.type === 'childList') {
     const parent = record.target
     const before = record.nextSibling   // the slot to re-insert before
+    let afterAuthored = record.nextSibling
+    while (afterAuthored && ignoreNode?.(afterAuthored)) afterAuthored = afterAuthored.nextSibling
+    let beforeAuthored = record.previousSibling
+    while (beforeAuthored && ignoreNode?.(beforeAuthored)) beforeAuthored = beforeAuthored.previousSibling
     // The parent target already passed the caller's ignore filter, but an
     // individual added/removed node can itself be an ignored subtree (e.g. a
     // save-ignore CMS shell appended directly under <body>). Drop those nodes
@@ -49,10 +53,10 @@ export function recordToPrimitives(record, ignoreNode = null) {
       ? Array.from(record.removedNodes).filter((n) => !ignoreNode(n))
       : Array.from(record.removedNodes)
     if (added.length > 0) {
-      out.push({ kind: 'add', parent, nodes: added, before })
+      out.push({ kind: 'add', parent, nodes: added, before, afterAuthored, beforeAuthored })
     }
     if (removed.length > 0) {
-      out.push({ kind: 'remove', parent, nodes: removed, before })
+      out.push({ kind: 'remove', parent, nodes: removed, before, afterAuthored, beforeAuthored })
     }
     return out
   }
@@ -132,16 +136,11 @@ export function replayForward(p) {
       // An element PROPERTY write (e.g. input.value / checkbox.checked). These
       // fire no MutationRecord, so they never arrive via the observer — a caller
       // records them explicitly through scope.recordValue().
-      p.target[p.prop] = p.newValue
+      if (p.write) p.write(p.target, p.newValue)
+      else p.target[p.prop] = p.newValue
       return
     case 'add':
-      for (const node of p.nodes) {
-        if (p.before && p.before.parentNode === p.parent) {
-          p.parent.insertBefore(node, p.before)
-        } else {
-          p.parent.appendChild(node)
-        }
-      }
+      insertAtRecordedContentSlot(p)
       return
     case 'remove':
       for (const node of p.nodes) {
@@ -178,8 +177,9 @@ export function replayReverse(p) {
       p.target.data = p.oldValue
       return
     case 'value':
-      if (p.target[p.prop] !== p.newValue) return
-      p.target[p.prop] = p.oldValue
+      if ((p.read ? p.read(p.target) : p.target[p.prop]) !== p.newValue) return
+      if (p.write) p.write(p.target, p.oldValue)
+      else p.target[p.prop] = p.oldValue
       return
     case 'add':
       // forward was add → reverse is remove
@@ -191,13 +191,26 @@ export function replayReverse(p) {
       return
     case 'remove':
       // forward was remove → reverse is add. Re-insert at the same slot.
-      for (const node of p.nodes) {
-        if (p.before && p.before.parentNode === p.parent) {
-          p.parent.insertBefore(node, p.before)
-        } else {
-          p.parent.appendChild(node)
-        }
-      }
+      insertAtRecordedContentSlot(p)
       return
+  }
+}
+
+function insertAtRecordedContentSlot(p) {
+  if (p.afterAuthored?.parentNode === p.parent) {
+    for (const node of p.nodes) p.parent.insertBefore(node, p.afterAuthored)
+    return
+  }
+  if (p.beforeAuthored?.parentNode === p.parent) {
+    let anchor = p.beforeAuthored
+    for (const node of p.nodes) {
+      anchor.after(node)
+      anchor = node
+    }
+    return
+  }
+  for (const node of p.nodes) {
+    if (p.before?.parentNode === p.parent) p.parent.insertBefore(node, p.before)
+    else p.parent.appendChild(node)
   }
 }

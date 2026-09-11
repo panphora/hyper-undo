@@ -415,3 +415,21 @@ test('recordValue handles a non-default prop (checkbox.checked)', async () => {
   scope.undo()
   assert.equal(box.checked, false)
 })
+
+test('recordValue supports content-aware compare and replay callbacks', async () => {
+  const { doc, scope } = mkScope('<!DOCTYPE html><body><div id="x">A<button editor-ui>Add</button></div></body>')
+  const target = doc.getElementById('x')
+  const button = target.querySelector('button')
+  const read = el => [...el.childNodes].filter(node => node !== button).map(node => node.textContent).join('')
+  const write = (el, value) => { el.firstChild.data = value }
+  scope.start()
+  write(target, 'B')
+  scope.recordValue(target, { prop: 'textContent', oldValue: 'A', newValue: 'B', read, write })
+  await nextCommit(scope)
+  scope.undo()
+  assert.equal(read(target), 'A')
+  assert.equal(target.querySelector('button'), button)
+  scope.redo()
+  assert.equal(read(target), 'B')
+  assert.equal(target.querySelector('button'), button)
+})

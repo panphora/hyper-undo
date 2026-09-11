@@ -137,6 +137,19 @@ test('remove: reverse restores the SAME node reference (identity preserved)', ()
   assert.equal(list.firstElementChild.dataset.marker, 'live')
 })
 
+test('remove: recreated editor UI anchor does not change authored order', () => {
+  const d = doc('<main><span id="a">A</span><span id="b">B</span><i editor-ui>UI</i><span id="c">C</span></main>')
+  const parent = d.querySelector('main')
+  const node = d.getElementById('b')
+    const ui = parent.querySelector('[editor-ui]')
+  const record = { type: 'childList', target: parent, addedNodes: [], removedNodes: [node], previousSibling: d.getElementById('a'), nextSibling: ui }
+    node.remove()
+    const primitive = recordToPrimitives(record, candidate => candidate.nodeType === 1 && candidate.hasAttribute('editor-ui'))[0]
+    ui.replaceWith(ui.cloneNode(true))
+    replayReverse(primitive)
+    assert.deepEqual([...parent.children].filter(el => !el.hasAttribute('editor-ui')).map(el => el.id), ['a', 'b', 'c'])
+})
+
 // ----- recordToPrimitives -----
 
 test('recordToPrimitives: attribute add (oldValue null) → attr-add', () => {
