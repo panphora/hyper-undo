@@ -1,5 +1,12 @@
 # hyper-undo changelog
 
+## [0.6.0] - 2026-09-11
+
+### Changed
+- An undo step only replays while the change it describes still stands
+
+
+
 ## [0.5.2] - 2026-09-04
 
 ### Fixed
