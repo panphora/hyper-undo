@@ -27,6 +27,7 @@
     ".": "./src/index.js"
   },
   "files": [
+    "packed-contract.json",
     "src",
     "dist",
     "index.js",
