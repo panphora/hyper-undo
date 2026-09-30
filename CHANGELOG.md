@@ -1,5 +1,16 @@
 # hyper-undo changelog
 
+## [0.6.1] - 2026-09-30
+
+### Changed
+- The packed contract now loads hyper-undo
+- The packed contract is excluded from the published npm package
+
+### Fixed
+- A descendant's own region marker is now checked on the element itself (content-dom.js synced from ClayJS)
+
+
+
 ## [0.6.0] - 2026-09-11
 
 ### Changed
