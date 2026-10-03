@@ -1,5 +1,12 @@
 # hyper-undo changelog
 
+## [0.6.2] - 2026-10-03
+
+### Fixed
+- Cloning now preserves the values of file, checkbox, radio, and option elements
+
+
+
 ## [0.6.1] - 2026-09-30
 
 ### Changed
