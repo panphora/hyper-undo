@@ -141,3 +141,19 @@ test('the shipped default actually carries the richclay selector', () => {
     'the bypass above proves nothing if the shipped default omits it'
   )
 })
+
+test('target inside an OverType editor bypasses, so the textarea keeps native undo', () => {
+  const dom = makeDom(
+    '<!DOCTYPE html><body><div class="overtype-wrapper"><textarea id="ot" class="overtype-input" persist></textarea></div></body>'
+  )
+  const scope = fakeScope()
+  const cleanup = installKeys(scope)
+  const ev = press(dom, dom.window.document.getElementById('ot'), { key: 'z', metaKey: true })
+  assert.deepEqual(scope.calls, [], 'the page-level stack must not act')
+  assert.equal(ev.defaultPrevented, false, 'and the key must be left for the textarea')
+  cleanup()
+})
+
+test('the shipped default actually carries the OverType selector', () => {
+  assert.ok(undo.defaults.shadowKeydownIn.includes('.overtype-input'))
+})

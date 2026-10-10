@@ -1,5 +1,10 @@
 # hyper-undo changelog
 
+## [Unreleased]
+
+### Fixed
+- Cmd+Z inside an OverType editor is left to the textarea, instead of a page-level undo that only restored its `data-value`
+
 ## [0.6.2] - 2026-10-03
 
 ### Fixed

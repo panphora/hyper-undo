@@ -9,6 +9,10 @@ const DEFAULT_SHADOW_LIST = [
   '.ql-editor',
   '.tiptap',
   '.ProseMirror',
+  // OverType's textarea keeps the browser's own undo, and the preview redraws on
+  // its input event. hyper-undo's page stack only restores data-value there, so
+  // Cmd+Z appeared to do nothing and the next save wrote the un-undone text.
+  '.overtype-input',
   // richclay marks its live region with this and stamps no-undo on it, so the
   // page-level stack holds no record of what was typed there. Without the
   // bypass, Cmd+Z inside a richclay editor never reached Squire: it either did
