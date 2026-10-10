@@ -1,5 +1,12 @@
 # hyper-undo changelog
 
+## [0.6.3] - 2026-10-10
+
+### Fixed
+- Cmd+Z inside OverType editors is now handled by the editor's own textarea instead of the global undo
+
+
+
 ## [Unreleased]
 
 ### Fixed
