@@ -1,5 +1,15 @@
 # hyper-undo changelog
 
+## [0.6.4] - 2026-10-15
+
+### Changed
+- Synced content-dom.js and region-capabilities.js with ClayJS, and updated extension-noise.js
+
+### Fixed
+- A select whose selected option is excluded from saving now keeps its selection in the content view (ported from ClayJS)
+
+
+
 ## [0.6.3] - 2026-10-10
 
 ### Fixed
