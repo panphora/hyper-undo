@@ -71,6 +71,7 @@ the box.
 | `undo.on('undo'\|'redo'\|'commit'\|'clear', fn)` / `undo.off(...)` | subscribe to lifecycle events; `undo`/`redo` fire after a navigate, `commit` after a new commit, `clear` after a reset. (No generic `change` event.) |
 | `undo.canUndo` / `undo.canRedo` | booleans (getters) |
 | `undo.history` | `[{ label, timestamp }, ...]`, oldest first; `timestamp` is `Date.now()` millis |
+| `undo.describe(entryId)` | JSON-safe description of what an entry changes, built from its certificate (`null` for an unknown id or an unreplayable entry) |
 | `undo.isPaused` | boolean (getter) |
 | `undo.defaults` | `{ shadowKeydownIn: [...] }` |
 | `undo.create(opts)` | a separate scope for advanced multi-scope use |

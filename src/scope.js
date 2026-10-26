@@ -1,5 +1,5 @@
 import { recordsToPrimitives } from './primitives.js'
-import { compileCertificate, preflight, applyOperations } from './replay-plan.js'
+import { compileCertificate, preflight, applyOperations, described } from './replay-plan.js'
 import { shouldIgnore } from './filter.js'
 import { createEmitter } from './emitter.js'
 
@@ -533,6 +533,61 @@ export function createScope(opts) {
     return { ok: true, entryId, direction }
   }
 
+  // Plain-data description of what an entry changes, built only from its
+  // certificate: the recovery store accepts serializable values, and the entry
+  // itself holds live DOM nodes. `null` for an unknown id or an entry whose
+  // certificate could not be compiled, so a caller can store the result as-is.
+  function describe(entryId) {
+    const entry = findEntry(entryId)
+    if (!entry || !entry.certificate || !entry.certificate.replayable) return null
+    const refused = refusedTop && refusedTop.entryId === entry.id
+      ? {
+          direction: refusedTop.direction,
+          code: refusedTop.code,
+          targets: (refusedTop.targets || []).map((target) => ({ id: target.id ?? null, kind: target.kind ?? null })),
+        }
+      : null
+    return {
+      id: entry.id,
+      label: entry.label,
+      timestamp: entry.timestamp,
+      refused,
+      steps: entry.certificate.steps.map(describeStep),
+    }
+  }
+
+  function describeStep(step) {
+    if (step.type === 'move') {
+      return {
+        kind: 'move',
+        node: { id: described(step.node).id },
+        from: { id: described(step.sourceParent).id },
+        to: { id: described(step.destParent).id },
+      }
+    }
+    // A removal replays as a restore; from the entry's own point of view it is
+    // still a removal, and that is the name the description uses.
+    if (step.type === 'add' || step.type === 'restore') {
+      return {
+        kind: step.type === 'add' ? 'add' : 'remove',
+        parent: { id: described(step.parent).id },
+        nodes: step.nodes.map((node, i) => ({ id: described(node).id, html: step.content[i] ?? null })),
+      }
+    }
+    const primitive = step.primitive
+    const target = { id: described(primitive.target).id }
+    const before = primitive.oldValue ?? null
+    const after = primitive.newValue ?? null
+    if (step.type === 'value') return { kind: 'value', target, prop: primitive.prop ?? 'value', before, after }
+    if (step.type === 'text') return { kind: 'text', target, before, after }
+    if (step.type === 'attr-set' || step.type === 'attr-add' || step.type === 'attr-remove') {
+      return { kind: 'attribute', target, name: primitive.name ?? null, before, after }
+    }
+    // A step kind this engine does not name yet keeps its own name and the same
+    // JSON-safe endpoint shape rather than being dropped.
+    return { kind: step.type, target, before, after }
+  }
+
   function observedHere(node) {
     const root = config.scope
     if (!root || !node) return false
@@ -585,7 +640,7 @@ export function createScope(opts) {
     commit, commitCaptured, discardCaptured, flush,
     command, setRecording,
     record, recordValue,
-    undo, redo, clear, discard,
+    undo, redo, clear, discard, describe,
     pause, resume,
     on: emitter.on, off: emitter.off,
     get canUndo() { return undoStack.length > 0 },

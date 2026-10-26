@@ -100,7 +100,7 @@ function protectedWithin(nodes, isProtected) {
   return found
 }
 
-function described(node, kind) {
+export function described(node, kind) {
   let host = node
   if (host && host.nodeType !== 1) host = host.parentElement
   const id = host && host.getAttribute ? host.getAttribute('data-id') : null
