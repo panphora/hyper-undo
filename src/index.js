@@ -125,6 +125,7 @@ const undo = {
       get canRedo() { return inst.canRedo },
       get isPaused() { return inst.isPaused },
       get history() { return inst.history },
+      get future() { return inst.future },
       get scope() { return inst.scope },
       start() {
         // Claim the global key binding first so a conflict throws before the
@@ -162,6 +163,7 @@ const undo = {
   get canUndo()           { return singleton ? singleton.canUndo : false },
   get canRedo()           { return singleton ? singleton.canRedo : false },
   get history()           { return singleton ? singleton.history : [] },
+  get future()            { return singleton ? singleton.future : [] },
   get isPaused()          { return singleton ? singleton.isPaused : false },
 }
 

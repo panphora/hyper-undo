@@ -276,3 +276,26 @@ test('a stopped or detached scope refuses a command and mutates no document', ()
   assert.equal(otherDoc.title, 'Second')
   assert.equal(scope.history.length, 0)
 })
+
+// A Redo control names the entry it would replay, and a history surface hears a
+// dismissal like every other change.
+test('future lists the redo stack next first, and discard is announced', () => {
+  const { scope, card } = board({ recording: 'commands' })
+  scope.command('First', () => card.setAttribute('data-title', 'One'))
+  scope.command('Second', () => card.setAttribute('data-title', 'Two'))
+  assert.deepEqual(scope.future, [])
+  scope.undo()
+  scope.undo()
+  assert.deepEqual(scope.future.map((entry) => entry.label), ['First', 'Second'])
+
+  scope.redo()
+  card.setAttribute('data-title', 'Peer')
+  const discarded = []
+  scope.on('discard', (detail) => discarded.push(detail))
+  const refused = scope.redo()
+  assert.equal(refused.ok, false)
+  assert.equal(scope.future[0].refused.code, refused.code)
+  assert.equal(scope.discard(refused.entryId).ok, true)
+  assert.deepEqual(discarded, [{ entryId: refused.entryId, label: 'Second', direction: 'redo' }])
+  assert.deepEqual(scope.future, [])
+})

@@ -529,6 +529,7 @@ export function createScope(opts) {
     stack.pop()
     refusedTop = null
     log('discarded', entry.label)
+    emitter.emit('discard', { entryId, label: entry.label, direction })
     return { ok: true, entryId, direction }
   }
 
@@ -598,6 +599,16 @@ export function createScope(opts) {
         }
         return entry
       })
+    },
+    // The redo stack, next first, in history's shape: what a Redo control names.
+    get future() {
+      return redoStack.map(c => {
+        const entry = { id: c.id, label: c.label, timestamp: c.timestamp }
+        if (refusedTop && refusedTop.entryId === c.id) {
+          entry.refused = { direction: refusedTop.direction, code: refusedTop.code, targets: refusedTop.targets }
+        }
+        return entry
+      }).reverse()
     },
     get scope() { return config.scope },
   }
