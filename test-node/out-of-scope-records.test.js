@@ -68,3 +68,52 @@ test('a head write alone, in automatic mode, makes no entry', async () => {
   scope.flush()
   assert.deepEqual(scope.history, [])
 })
+
+test('a command records the head fields it writes, and undo and redo restore them', async () => {
+  const { doc, scope } = page()
+  const meta = doc.createElement('meta')
+  meta.setAttribute('name', 'description')
+  meta.setAttribute('content', 'Old')
+  doc.head.appendChild(meta)
+
+  scope.command('SEO settings', () => {
+    meta.setAttribute('content', 'New')
+    doc.title = 'Roadmap'
+  })
+
+  assert.deepEqual(scope.history.map((e) => e.label), ['SEO settings'])
+  const undone = scope.undo()
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.equal(doc.querySelector('meta[name="description"]').getAttribute('content'), 'Old')
+  assert.equal(doc.title, 'Board')
+  const redone = scope.redo()
+  assert.equal(redone.ok, true, JSON.stringify(redone))
+  assert.equal(doc.querySelector('meta[name="description"]').getAttribute('content'), 'New')
+  assert.equal(doc.title, 'Roadmap')
+  // One entry, and the title's text is one step of it, not a second record beside
+  // the command's own title capture.
+  assert.deepEqual(scope.describe(scope.history[0].id).steps.map((s) => s.kind), ['attribute', 'value'])
+})
+
+test('an automatic-mode commit records the head fields it writes as one entry', async () => {
+  const { doc, scope } = page()
+  const meta = doc.createElement('meta')
+  meta.setAttribute('name', 'description')
+  meta.setAttribute('content', 'Old')
+  doc.head.appendChild(meta)
+  await tick(60)
+  scope.flush()
+
+  scope.commit('SEO settings', () => {
+    meta.setAttribute('content', 'New')
+    doc.title = 'Roadmap'
+  })
+
+  assert.deepEqual(scope.history.map((e) => e.label), ['SEO settings'])
+  assert.equal(scope.undo().ok, true)
+  assert.equal(doc.querySelector('meta[name="description"]').getAttribute('content'), 'Old')
+  assert.equal(doc.title, 'Board')
+  assert.equal(scope.redo().ok, true)
+  assert.equal(doc.querySelector('meta[name="description"]').getAttribute('content'), 'New')
+  assert.equal(doc.title, 'Roadmap')
+})

@@ -95,7 +95,14 @@ export function createScope(opts) {
 
   // --- Observer callback ---
 
+  // The record source's callback. It hands over its own instance as a second
+  // argument, so the bracket flag is passed through collectRecords instead.
   function handleRecords(records) {
+    collectRecords(records, false)
+  }
+
+  // `bracketed` marks records a commit's or a command's own callback wrote.
+  function collectRecords(records, bracketed) {
     // While paused, these callback-delivered records are DROPPED — they have
     // already left the observer's buffer, so they're gone. resume()'s
     // takeRecords() separately purges only the remainder that was never
@@ -110,7 +117,7 @@ export function createScope(opts) {
     // see it, but it is not a local action and earns no entry.
     if (recordingMode === 'commands') return
     if (pauseDepth > 0) return
-    const prims = convertRecords(dropIgnoredRecords(records))
+    const prims = convertRecords(dropIgnoredRecords(records), bracketed)
     if (prims.length > 0) {
       for (const p of prims) pendingPrimitives.push(p)
       restartIdleTimer()
@@ -139,12 +146,15 @@ export function createScope(opts) {
   }
 
   // Filter ignored records, then coalesce same-attribute repeats within the batch.
-  // A shared record source observes the whole document, so a record whose target
-  // sits outside this scope (a head write such as document.title's text) is some
-  // other region's change and never part of an entry here; a title an entry owns
-  // is recorded explicitly with recordValue.
-  function convertRecords(records) {
-    const kept = records.filter((r) => observedHere(r.target) && !shouldIgnore(r.target, config.ignoreAttribute, r))
+  // A shared record source observes the whole document, so an idle record whose
+  // target sits outside this scope (a head write such as document.title's text) is
+  // some other region's change and never part of an entry here; a title an entry
+  // owns is recorded explicitly with recordValue. A bracketed record — one a
+  // commit's or a command's own callback wrote — is the caller's declaration that
+  // what it wrote there is one entry, so it may own the scope document's head
+  // fields too; head's <title> stays with the bracket's own title capture.
+  function convertRecords(records, bracketed = false) {
+    const kept = records.filter((r) => (observedHere(r.target) || (bracketed && inHead(r.target))) && !shouldIgnore(r.target, config.ignoreAttribute, r))
     return recordsToPrimitives(kept, (node) => shouldIgnore(node, config.ignoreAttribute))
   }
 
@@ -213,12 +223,18 @@ export function createScope(opts) {
     // isn't swallowed under this label.
     handleRecords(observer.takeRecords())
     flush()
+    // A commit brackets fn the way a command does, so the document title it
+    // changes is one value step of this entry (and head's <title> text is left to
+    // that capture, never a second record beside it).
+    const titleBefore = pauseDepth === 0 ? titleValue() : null
     const result = fn()
     if (result && typeof result.then === 'function') {
       throw new Error('hyper-undo: commit() fn must be synchronous; returned a Promise')
     }
-    // Drain records the observer hasn't fired callback for yet.
-    handleRecords(observer.takeRecords())
+    // Drain records the observer hasn't fired callback for yet. They are this
+    // commit's own bracket, so what fn wrote in the document's head joins it.
+    collectRecords(observer.takeRecords(), true)
+    if (titleBefore != null) recordTitleChange(titleBefore)
     if (pendingPrimitives.length === 0) {
       emitter.emit('commit')
       return
@@ -243,7 +259,7 @@ export function createScope(opts) {
     // push lands AFTER it in history. Without this, type-then-immediately-add
     // would record the structural op before the typing, inverting undo order.
     flush()
-    const primitives = convertRecords(observer.takeRecords())
+    const primitives = convertRecords(observer.takeRecords(), true)
     if (primitives.length === 0) return
     clearIdleTimer()
     pushCommit(label, primitives)
@@ -315,7 +331,7 @@ export function createScope(opts) {
     const held = capture
     capture = null
     if (!held) return []
-    const primitives = convertRecords(held.records)
+    const primitives = convertRecords(held.records, true)
     for (const p of held.primitives) primitives.push(p)
     return primitives
   }
@@ -594,14 +610,29 @@ export function createScope(opts) {
     return node === root || (typeof root.contains === 'function' && root.contains(node))
   }
 
+  // A node the scope document's head holds, other than the <title> and what it
+  // contains: the fields a page saves with its document, which a bracket records.
+  function inHead(node) {
+    const doc = scopeDocument()
+    const head = doc && doc.head
+    if (!head || !node) return false
+    let el = node.nodeType === 1 ? node : node.parentElement
+    for (; el && el !== head; el = el.parentElement) {
+      if (el.localName === 'title') return false
+    }
+    return el === head
+  }
+
   function inScope(node) {
     const root = config.scope
     if (!node || !root) return false
     if (node === root) return true
-    // A manually recorded document.title value addresses head's <title>: the one
-    // node outside the observed scope an entry may own. Nothing else in the head
-    // or document is claimed.
+    // A manually recorded document.title value addresses head's <title>: the node
+    // outside the observed scope an entry's title step owns.
     if (titleNode() === node) return true
+    // A bracket may record the head's own fields (see convertRecords), so their
+    // replay is judged by the head they still sit in.
+    if (inHead(node)) return true
     return typeof root.contains === 'function' ? root.contains(node) : false
   }
 
