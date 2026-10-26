@@ -139,8 +139,12 @@ export function createScope(opts) {
   }
 
   // Filter ignored records, then coalesce same-attribute repeats within the batch.
+  // A shared record source observes the whole document, so a record whose target
+  // sits outside this scope (a head write such as document.title's text) is some
+  // other region's change and never part of an entry here; a title an entry owns
+  // is recorded explicitly with recordValue.
   function convertRecords(records) {
-    const kept = records.filter((r) => !shouldIgnore(r.target, config.ignoreAttribute, r))
+    const kept = records.filter((r) => observedHere(r.target) && !shouldIgnore(r.target, config.ignoreAttribute, r))
     return recordsToPrimitives(kept, (node) => shouldIgnore(node, config.ignoreAttribute))
   }
 
@@ -525,6 +529,12 @@ export function createScope(opts) {
     refusedTop = null
     log('discarded', entry.label)
     return { ok: true, entryId, direction }
+  }
+
+  function observedHere(node) {
+    const root = config.scope
+    if (!root || !node) return false
+    return node === root || (typeof root.contains === 'function' && root.contains(node))
   }
 
   function inScope(node) {
