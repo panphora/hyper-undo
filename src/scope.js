@@ -10,6 +10,7 @@ const DEFAULTS = {
   recording: 'automatic',
   ignoreAttribute: null,
   isProtected: null,
+  ignoreNode: null,
   debug: false,
 }
 
@@ -109,11 +110,32 @@ export function createScope(opts) {
     // see it, but it is not a local action and earns no entry.
     if (recordingMode === 'commands') return
     if (pauseDepth > 0) return
-    const prims = convertRecords(records)
+    const prims = convertRecords(dropIgnoredRecords(records))
     if (prims.length > 0) {
       for (const p of prims) pendingPrimitives.push(p)
       restartIdleTimer()
     }
+  }
+
+  // A gesture can move its own node many times while a command is still open
+  // (dragover, touchmove). In automatic mode each of those childList records
+  // would join the idle batch and leave a generic entry beside the one semantic
+  // move the consumer records with command(). Drop a childList record whose
+  // every added and removed node the caller ignores, so it also never restarts
+  // the idle window; a record that also touches any other node is kept whole.
+  // Command brackets bypass this: they record what they bracket.
+  function dropIgnoredRecords(records) {
+    if (typeof config.ignoreNode !== 'function') return records
+    return records.filter((record) => {
+      if (record.type !== 'childList') return true
+      const touched = [...record.addedNodes, ...record.removedNodes]
+      if (touched.length === 0) return true
+      return !touched.every((node) => ignoresNode(node))
+    })
+  }
+
+  function ignoresNode(node) {
+    try { return !!config.ignoreNode(node) } catch (_) { return false }
   }
 
   // Filter ignored records, then coalesce same-attribute repeats within the batch.
