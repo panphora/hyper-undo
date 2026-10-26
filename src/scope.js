@@ -9,6 +9,7 @@ const DEFAULTS = {
   idleLabel: 'Edit',
   recording: 'automatic',
   ignoreAttribute: null,
+  isProtected: null,
   debug: false,
 }
 
@@ -141,7 +142,7 @@ export function createScope(opts) {
   // --- Commit machinery ---
 
   function pushCommit(label, primitives) {
-    const certificate = compileCertificate(primitives, { isIgnored: isIgnoredNode })
+    const certificate = compileCertificate(primitives, { isIgnored: isIgnoredNode, ignoreAttribute: isIgnoredAttribute })
     if (certificate.steps.length === 0) {
       log('commit', label, 'with nothing to record')
       emitter.emit('commit')
@@ -159,6 +160,18 @@ export function createScope(opts) {
 
   function isIgnoredNode(node) {
     return shouldIgnore(node, config.ignoreAttribute)
+  }
+
+  // The same predicate the recorder uses, asked about an attribute the
+  // certificate is projecting rather than about a live record.
+  function isIgnoredAttribute(name, node) {
+    if (typeof config.ignoreAttribute !== 'function') return false
+    try { return !!config.ignoreAttribute(name, node) } catch (_) { return false }
+  }
+
+  function isProtectedNode(node) {
+    if (typeof config.isProtected !== 'function') return false
+    try { return !!config.isProtected(node) } catch (_) { return false }
   }
 
   // Explicit commit: caller-driven, synchronous fn.
@@ -433,6 +446,8 @@ export function createScope(opts) {
     try {
       checked = preflight(entry.certificate, direction, {
         isIgnored: isIgnoredNode,
+        ignoreAttribute: isIgnoredAttribute,
+        isProtected: isProtectedNode,
         inScope,
         liveNodesWithIds,
       })

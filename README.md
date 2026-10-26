@@ -85,7 +85,8 @@ the box.
 | `idleLabel` | `'Edit'` | label for auto-closed batches |
 | `bindKeys` | `true` (singleton), `false` (`create`) | install the global Cmd+Z handler |
 | `shadowKeydownIn` | code-editor selectors (see below) | when `event.target.closest(selector)` matches, the global handler bails without `preventDefault` |
-| `ignoreAttribute` | `null` | predicate `(attrName, element) => boolean`; return true to skip recording that attribute mutation |
+| `ignoreAttribute` | `null` | predicate `(attrName, element) => boolean`; return true to skip recording that attribute mutation, and the certificate's projection skips it too, so such a change never refuses a later undo or redo. |
+| `isProtected` | `null` | predicate `(node) => boolean`; return true for content that no undo or redo may erase, and an operation that would remove or replace a subtree containing such a node is refused with code `"protected"`. |
 | `debug` | `false` | console.log internal state transitions |
 
 ## Batching
