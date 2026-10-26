@@ -103,7 +103,8 @@ function protectedWithin(nodes, isProtected) {
 export function described(node, kind) {
   let host = node
   if (host && host.nodeType !== 1) host = host.parentElement
-  const id = host && host.getAttribute ? host.getAttribute('data-id') : null
+  const owner = host && typeof host.closest === 'function' ? host.closest('[data-id]') : null
+  const id = owner ? owner.getAttribute('data-id') : null
   return { id: id || null, kind: kind || null }
 }
 

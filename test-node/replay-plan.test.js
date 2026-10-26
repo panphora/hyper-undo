@@ -354,3 +354,19 @@ test('normalizePrimitives keeps one endpoint pair per field and drops net no-ops
   assert.equal(normalized[0].kind, 'attr-add')
   assert.equal(normalized[0].name, 'data-new')
 })
+
+test('a refused text step names the nearest element that carries a data-id', () => {
+  const { doc, scope } = board('<article class="entry" data-id="e-1"><div class="body"><p id="para">first</p></div></article>')
+  const text = doc.getElementById('para').firstChild
+  scope.commit('Write', () => { text.data = 'mine' })
+  peer(scope, () => { text.data = 'theirs' })
+
+  const seen = []
+  const off = scope.on('refused', (payload) => seen.push(payload))
+  scope.undo()
+  off()
+
+  assert.equal(seen.length, 1)
+  assert.deepEqual(seen[0].targets.map((target) => target.id), ['e-1'])
+  assert.equal(text.data, 'theirs')
+})
