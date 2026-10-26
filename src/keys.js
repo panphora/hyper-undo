@@ -1,3 +1,27 @@
+// Is the key being pressed inside a native editable control (or an editable
+// subtree)? The browser's own undo belongs there, not the page stack's.
+function ownsNativeUndo(event) {
+  const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+  const nodes = path.length > 0 ? path : chainFromTarget(event.target)
+  for (const node of nodes) {
+    if (!node || node.nodeType !== 1) continue
+    const tag = String(node.tagName || '').toUpperCase()
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+    if (node.isContentEditable === true) return true
+    // jsdom (and older engines) do not resolve isContentEditable, so read the
+    // declaration itself; an unset or explicit "false" is not editable.
+    const declared = node.getAttribute && node.getAttribute('contenteditable')
+    if (declared != null && String(declared).toLowerCase() !== 'false') return true
+  }
+  return false
+}
+
+function chainFromTarget(target) {
+  const out = []
+  for (let node = target; node; node = node.parentNode || (node.host ?? null)) out.push(node)
+  return out
+}
+
 // Installs a single window-level keydown listener in capture phase.
 // Returns a cleanup function.
 
@@ -10,6 +34,14 @@ export function installKeys(scope, onDetached) {
       if (onDetached) onDetached()
       return
     }
+
+    // A key the page already handled belongs to whoever handled it.
+    if (event.defaultPrevented) return
+    // The IME owns keys while it composes.
+    if (event.isComposing || event.keyCode === 229) return
+    // A plain form control keeps the browser's own text undo. Only the unsent
+    // control changes; Save/Enter later commits that text as a page command.
+    if (ownsNativeUndo(event)) return
 
     // Bypass for in-page editors (CodeMirror, Monaco, etc.)
     const target = event.target

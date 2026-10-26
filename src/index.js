@@ -106,6 +106,8 @@ const undo = {
     const wrapper = {
       _config: inst._config,
       commit: inst.commit,
+      command: inst.command,
+      setRecording: inst.setRecording,
       commitCaptured: inst.commitCaptured,
       discardCaptured: inst.discardCaptured,
       flush: inst.flush,
@@ -142,6 +144,8 @@ const undo = {
 
   // Singleton delegators
   commit(label, fn)       { return singleton ? singleton.commit(label, fn) : undefined },
+  command(label, fn)      { return singleton ? singleton.command(label, fn) : undefined },
+  setRecording(mode)      { return singleton ? singleton.setRecording(mode) : undefined },
   commitCaptured(label)   { return singleton ? singleton.commitCaptured(label) : undefined },
   discardCaptured()       { return singleton ? singleton.discardCaptured() : undefined },
   record(p)               { return singleton ? singleton.record(p) : undefined },

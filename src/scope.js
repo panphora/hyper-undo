@@ -7,6 +7,7 @@ const DEFAULTS = {
   maxHistory: 100,
   idleWindowMs: 500,
   idleLabel: 'Edit',
+  recording: 'automatic',
   ignoreAttribute: null,
   debug: false,
 }
@@ -26,6 +27,9 @@ export function createScope(opts) {
   let observer = null
   let pauseDepth = 0       // reference-counted; recording is active only at 0
   let started = false
+  let recordingMode = config.recording === 'commands' ? 'commands' : 'automatic'
+  let capture = null       // { records, primitives } while an explicit command runs
+  let replaying = false    // true only inside an undo/redo preflight and apply
 
   function log(...args) { if (config.debug) console.log('[hyper-undo]', ...args) }
 
@@ -73,6 +77,8 @@ export function createScope(opts) {
     redoStack.length = 0
     pendingPrimitives = []
     refusedTop = null
+    capture = null
+    replaying = false
     pauseDepth = 0   // reset so a reused (created) scope doesn't restart paused
     log('stopped')
   }
@@ -93,6 +99,14 @@ export function createScope(opts) {
     // takeRecords() separately purges only the remainder that was never
     // delivered. Those two halves together are the pause contract, and the
     // shimmed (paired) path reproduces both.
+    if (capture) {
+      for (const record of records) capture.records.push(record)
+      return
+    }
+    // Commands mode: an unbracketed record is some other writer's (a merge, a
+    // sap paint, a sortable gesture). It changes the document, so later guards
+    // see it, but it is not a local action and earns no entry.
+    if (recordingMode === 'commands') return
     if (pauseDepth > 0) return
     const prims = convertRecords(records)
     if (prims.length > 0) {
@@ -131,14 +145,16 @@ export function createScope(opts) {
     if (certificate.steps.length === 0) {
       log('commit', label, 'with nothing to record')
       emitter.emit('commit')
-      return
+      return null
     }
-    undoStack.push({ id: `${entryPrefix}-${++entryCount}`, label, timestamp: Date.now(), primitives, certificate })
+    const entry = { id: `${entryPrefix}-${++entryCount}`, label, timestamp: Date.now(), primitives, certificate }
+    undoStack.push(entry)
     redoStack.length = 0
     refusedTop = null
     while (undoStack.length > config.maxHistory) undoStack.shift()
     log('commit', label, 'primitives:', primitives.length)
     emitter.emit('commit')
+    return entry
   }
 
   function isIgnoredNode(node) {
@@ -148,6 +164,9 @@ export function createScope(opts) {
   // Explicit commit: caller-driven, synchronous fn.
   function commit(label, fn) {
     if (!started) throw new Error('hyper-undo: scope not started')
+    // Only automatic IDLE collection is off in commands mode: commit stays an
+    // explicit boundary, and an outer exclusion pause still excludes it.
+    if (recordingMode === 'commands') return runCapture(label, fn, { honorPause: true, receipt: false })
     // Drain anything already buffered from this same synchronous tick (e.g.
     // typing whose observer callback hasn't fired yet) into pending, THEN close
     // it as its own batch — so the explicit commit starts clean and prior work
@@ -194,16 +213,161 @@ export function createScope(opts) {
     if (observer) observer.takeRecords()
   }
 
+  // --- Explicit commands ---
+
+  // document.title lives in <head>, outside the body the observer watches, so a
+  // command records it from its own bracket and addresses head's <title> element
+  // directly. The document is the SCOPE's, never the module-global one: a scope
+  // bound to another realm must not read or write this page's title.
+  function scopeDocument() {
+    const root = config.scope
+    return (root && root.ownerDocument) || (typeof document !== 'undefined' ? document : null)
+  }
+
+  function titleNode() {
+    const doc = scopeDocument()
+    if (!doc || !doc.head || typeof doc.head.querySelector !== 'function') return null
+    return doc.head.querySelector('title')
+  }
+
+  function titleValue() {
+    const node = titleNode()
+    return node ? node.textContent : null
+  }
+
+  function recordTitleChange(before) {
+    const node = titleNode()
+    if (!node || before == null) return
+    const after = node.textContent
+    if (after === before) return
+    capturePrimitive({ kind: 'value', target: node, prop: 'textContent', oldValue: before, newValue: after })
+  }
+
+  // A caller records document.title explicitly (recordValue(document, { prop: 'title' })).
+  // Redirect that write onto the live <title> element so it shares one target and
+  // one certificate entry with the command's own title capture.
+  function normalizeRecordedPrimitive(primitive) {
+    if (!primitive) return null
+    const doc = scopeDocument()
+    if (!doc || primitive.target !== doc || primitive.prop !== 'title') return primitive
+    const node = titleNode()
+    if (!node) return null
+    return { kind: 'value', target: node, prop: 'textContent', oldValue: primitive.oldValue, newValue: primitive.newValue }
+  }
+
+  function inEffectContext() {
+    if (typeof window === 'undefined') return false
+    const effect = window.clay?.effect || window.hyperclay?.effect
+    return !!(effect && effect.running)
+  }
+
+  function openCapture() {
+    // Everything that happened before the command goes through its ordinary
+    // classification first: automatic work becomes its own idle entry, and in
+    // commands mode an unbracketed record is dropped as usual. Then preceding
+    // local work is closed, so the command starts from a fresh buffer.
+    if (observer) handleRecords(observer.takeRecords())
+    flush()
+    capture = { records: [], primitives: [] }
+  }
+
+  function closeCapture() {
+    const held = capture
+    capture = null
+    if (!held) return []
+    const primitives = convertRecords(held.records)
+    for (const p of held.primitives) primitives.push(p)
+    return primitives
+  }
+
+  // One synchronous bracket around a caller's authored writes. Deliberately
+  // records only what happens inside the callback, so a local command during a
+  // long sync pause is captured while the surrounding merge writes are not. The
+  // outer pause depth is never touched: no part of the hub is resumed.
+  function runCapture(label, fn, { honorPause, receipt }) {
+    if (typeof fn !== 'function') throw new Error('hyper-undo: command() needs a synchronous function')
+    if (capture) throw new Error('hyper-undo: command() cannot nest inside another command')
+    if (replaying) throw new Error('hyper-undo: command() cannot run during undo or redo')
+    if (inEffectContext()) throw new Error('hyper-undo: command() cannot run inside a derived-effect context')
+    if (fn.constructor && fn.constructor.name === 'AsyncFunction') {
+      throw new Error('hyper-undo: command() fn must be synchronous; it was declared async')
+    }
+    const discarded = honorPause && pauseDepth > 0
+    const titleBefore = discarded ? null : titleValue()
+    openCapture()
+    let primitives = []
+    let failure = null
+    let result
+    try {
+      try {
+        result = fn()
+      } catch (error) {
+        failure = error
+      }
+      if (observer) handleRecords(observer.takeRecords())
+      if (result && typeof result.then === 'function') {
+        // Never extend the capture across the await; just keep the rejection
+        // from surfacing as an unhandled one.
+        try { result.then(undefined, () => {}) } catch (_) {}
+        if (!failure) failure = new Error('hyper-undo: command() fn must be synchronous; returned a Promise')
+      }
+      if (!discarded) recordTitleChange(titleBefore)
+    } finally {
+      primitives = closeCapture()
+    }
+    // A callback that wrote and then failed keeps its observed writes as an
+    // interrupted entry: the DOM already changed and dropping it would leave
+    // unexplained content with no way back.
+    const entry = discarded || primitives.length === 0 ? null : pushCommit(label, primitives)
+    if (failure) throw failure
+    if (!receipt) return entry
+    return entry ? { id: entry.id, label: entry.label } : null
+  }
+
+  // Explicit local command: one label, one entry, only its own synchronous
+  // writes. Returns null for a no-op and { id, label } otherwise.
+  function command(label, fn) {
+    if (!started) throw new Error('hyper-undo: scope not started')
+    return runCapture(label, fn, { honorPause: false, receipt: true })
+  }
+
+  // Automatic (default) keeps idle batches for every consumer that records by
+  // watching the document; commands mode records only explicit commands.
+  function setRecording(mode) {
+    if (mode !== 'automatic' && mode !== 'commands') {
+      throw new Error("hyper-undo: setRecording() takes 'automatic' or 'commands'")
+    }
+    if (capture) throw new Error('hyper-undo: setRecording() cannot change while a command is running')
+    if (recordingMode === mode) return recordingMode
+    // Work already recorded keeps its own entry: the switch is a commit
+    // boundary, never a silent merge into the next command.
+    flush()
+    recordingMode = mode
+    log('recording', mode)
+    return recordingMode
+  }
+
   // --- Manual recording (for changes the observer can't see) ---
 
   // Record a primitive the MutationObserver never delivers — an element PROPERTY
   // write (input.value, checkbox.checked) fires no MutationRecord. The primitive
   // joins the same idle batch as observed edits, so rapid same-field property
-  // writes coalesce into one commit exactly like text edits do. No-op while
-  // stopped or paused (a paused caller is inside an undo/redo replay or an
-  // exclusion frame, where injected primitives would be wrong).
+  // writes coalesce into one commit exactly like text edits do. Inside a command
+  // the write joins that command's entry; outside one it is a no-op while
+  // stopped, paused or in commands mode.
   function record(primitive) {
-    if (!started || pauseDepth > 0 || !primitive) return
+    if (!started || !primitive) return
+    // Inside a command the capture owns the write, even under an outer pause.
+    // Outside one, commands mode records nothing and an exclusion pause still
+    // excludes.
+    if (!capture && (pauseDepth > 0 || recordingMode === 'commands')) return
+    const normalized = normalizeRecordedPrimitive(primitive)
+    if (!normalized) return
+    capturePrimitive(normalized)
+  }
+
+  function capturePrimitive(primitive) {
+    if (capture) { capture.primitives.push(primitive); return }
     pendingPrimitives.push(primitive)
     restartIdleTimer()
   }
@@ -264,17 +428,25 @@ export function createScope(opts) {
       const requested = findEntry(requestedId) || entry
       return refuse(requested, direction, 'stale-entry')
     }
-    const checked = preflight(entry.certificate, direction, {
-      isIgnored: isIgnoredNode,
-      inScope,
-      liveNodesWithIds,
-    })
+    let checked
+    replaying = true
+    try {
+      checked = preflight(entry.certificate, direction, {
+        isIgnored: isIgnoredNode,
+        inScope,
+        liveNodesWithIds,
+      })
+    } finally {
+      replaying = false
+    }
     if (!checked.ok) return refuse(entry, direction, checked.code, checked.targets)
     pause()
     let applied
+    replaying = true
     try {
       applied = applyOperations(checked.operations)
     } finally {
+      replaying = false
       resume()
     }
     if (!applied.ok) {
@@ -322,6 +494,10 @@ export function createScope(opts) {
     const root = config.scope
     if (!node || !root) return false
     if (node === root) return true
+    // A manually recorded document.title value addresses head's <title>: the one
+    // node outside the observed scope an entry may own. Nothing else in the head
+    // or document is claimed.
+    if (titleNode() === node) return true
     return typeof root.contains === 'function' ? root.contains(node) : false
   }
 
@@ -358,6 +534,7 @@ export function createScope(opts) {
     _config: config,  // private: used by keys.js to read shadowKeydownIn
     start, stop,
     commit, commitCaptured, discardCaptured, flush,
+    command, setRecording,
     record, recordValue,
     undo, redo, clear, discard,
     pause, resume,
