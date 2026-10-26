@@ -297,6 +297,7 @@ export function preflight(certificate, direction, env = {}) {
     inScope: env.inScope || (() => true),
     liveNodesWithIds: env.liveNodesWithIds || (() => []),
     sim: new Map(),
+    planned: new Map(),
     operations: [],
   }
 
@@ -311,6 +312,13 @@ export function preflight(certificate, direction, env = {}) {
 function listFor(context, parent) {
   if (!context.sim.has(parent)) context.sim.set(parent, childIdentities(parent, context.isIgnored))
   return context.sim.get(parent)
+}
+
+function inPlannedScope(node, context) {
+  for (let n = node; n; n = n.parentNode) {
+    if (context.planned.has(n)) return context.planned.get(n)
+  }
+  return context.inScope(node)
 }
 
 function refuseStep(code, targets) {
@@ -338,7 +346,7 @@ function checkScalar(step, undoing, context) {
   const expected = undoing ? primitive.newValue : primitive.oldValue
   const next = undoing ? primitive.oldValue : primitive.newValue
   if (!isNode(primitive.target)) return refuseStep('unsupported', step.targets)
-  if (!context.inScope(primitive.target)) return refuseStep('target-detached', step.targets)
+  if (!inPlannedScope(primitive.target, context)) return refuseStep('target-detached', step.targets)
   if (primitive.kind === 'value' && typeof primitive.write === 'function' && typeof primitive.read !== 'function') {
     return refuseStep('unsupported', step.targets)
   }
@@ -362,7 +370,10 @@ function checkAdd(step, undoing, context) {
     for (let i = 0; i < step.nodes.length; i++) {
       if (durableProjection(step.nodes[i], context.ignoreAttribute, step.parent) !== step.content[i]) return refuseStep('content-changed', step.targets)
     }
-    for (const node of step.nodes) context.operations.push({ type: 'remove', node })
+    for (const node of step.nodes) {
+      context.operations.push({ type: 'remove', node })
+      context.planned.set(node, false)
+    }
     context.sim.set(step.parent, step.seqBefore.slice())
     return null
   }
@@ -370,12 +381,17 @@ function checkAdd(step, undoing, context) {
   for (const node of step.nodes) {
     if (node.parentNode) return refuseStep('structure-changed', step.targets)
   }
+  const ids = step.nodes.flatMap((node) => durableIdsIn(node))
+  if (ids.length > 0 && context.liveNodesWithIds(ids).length > 0) return refuseStep('duplicate-id', step.targets)
   const at = slotIndex(step.seqBefore, step.slot)
   if (at == null) return refuseStep('unsupported', step.targets)
   let inserted = step.seqBefore.slice()
+  let cursor = at
   for (const node of step.nodes) {
-    context.operations.push({ type: 'insert', parent: step.parent, node, beforeId: inserted[at] ?? null })
-    inserted = inserted.slice(0, at).concat(identityOf(node), inserted.slice(at))
+    context.operations.push({ type: 'insert', parent: step.parent, node, beforeId: inserted[cursor] ?? null })
+    inserted = inserted.slice(0, cursor).concat(identityOf(node), inserted.slice(cursor))
+    cursor += 1
+    context.planned.set(node, true)
   }
   context.sim.set(step.parent, step.seqAfter.slice())
   return null
@@ -398,6 +414,7 @@ function checkRestore(step, undoing, context) {
       context.operations.push({ type: 'insert', parent: step.parent, node, beforeId: restored[cursor] ?? null })
       restored = restored.slice(0, cursor).concat(identityOf(node), restored.slice(cursor))
       cursor += 1
+      context.planned.set(node, true)
     }
     context.sim.set(step.parent, step.seqBefore.slice())
     return null
@@ -409,7 +426,10 @@ function checkRestore(step, undoing, context) {
     const node = step.nodes[i]
     if (node.parentNode !== step.parent || durableProjection(node, context.ignoreAttribute, step.parent) !== step.content[i]) return refuseStep('content-changed', step.targets)
   }
-  for (const node of step.nodes) context.operations.push({ type: 'remove', node })
+  for (const node of step.nodes) {
+    context.operations.push({ type: 'remove', node })
+    context.planned.set(node, false)
+  }
   context.sim.set(step.parent, step.seqAfter.slice())
   return null
 }
@@ -438,6 +458,7 @@ function checkMove(step, undoing, context) {
   const at = slotIndex(gap, slot)
   if (at == null) return refuseStep('unsupported', step.targets)
   context.operations.push({ type: 'insert', parent: toParent, node: step.node, beforeId: gap[at] ?? null })
+  context.planned.set(step.node, true)
   if (undoing) {
     context.sim.set(toParent, step.source.before.slice())
     if (fromParent !== toParent) context.sim.set(fromParent, step.dest.before.slice())
@@ -505,8 +526,13 @@ function applyOne(op, journal) {
   if (op.type === 'insert') {
     const before = op.beforeId == null ? null : findChildByIdentity(op.parent, op.beforeId)
     if (op.beforeId != null && !before) throw new Error('hyper-undo: replay anchor vanished')
+    const fromParent = op.node.parentNode
+    const fromNext = op.node.nextSibling
     op.parent.insertBefore(op.node, before)
-    journal.push(() => { if (op.node.parentNode === op.parent) op.parent.removeChild(op.node) })
+    journal.push(() => {
+      if (fromParent) fromParent.insertBefore(op.node, fromNext && fromNext.parentNode === fromParent ? fromNext : null)
+      else if (op.node.parentNode === op.parent) op.parent.removeChild(op.node)
+    })
     return
   }
   if (op.type === 'remove') {

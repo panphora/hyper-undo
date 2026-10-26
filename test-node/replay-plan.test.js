@@ -355,6 +355,162 @@ test('normalizePrimitives keeps one endpoint pair per field and drops net no-ops
   assert.equal(normalized[0].name, 'data-new')
 })
 
+test('redo of a multi-node add keeps the recorded order and the next undo succeeds', () => {
+  const { doc, scope } = board('<ul id="list"></ul>', { recording: 'commands' })
+  const list = doc.getElementById('list')
+  scope.command('Add cards', () => {
+    const fragment = doc.createDocumentFragment()
+    for (const id of ['card-1', 'card-2', 'card-3']) {
+      const card = doc.createElement('li')
+      card.setAttribute('data-id', id)
+      card.textContent = id
+      fragment.appendChild(card)
+    }
+    list.appendChild(fragment)
+  })
+  const end = bytes(doc)
+  assert.equal(list.children.length, 3, 'one record, three added nodes')
+
+  assert.equal(scope.undo()?.ok, true)
+  assert.equal(list.children.length, 0)
+
+  assert.equal(scope.redo()?.ok, true)
+  assert.equal(bytes(doc), end)
+  assert.deepEqual([...list.children].map((child) => child.getAttribute('data-id')), ['card-1', 'card-2', 'card-3'], 'redo re-inserts the batch in its recorded order')
+  assert.equal(scope.undo()?.ok, true, 'and the order redo wrote is the order undo recorded')
+  assert.equal(list.children.length, 0)
+})
+
+test('redo of an add refuses when a peer node already carries the added durable id', () => {
+  const { doc, scope } = board('<ul id="a"></ul><ul id="b"></ul>', { recording: 'commands' })
+  const listA = doc.getElementById('a')
+  scope.command('Add card', () => {
+    const card = doc.createElement('li')
+    card.setAttribute('data-id', 'card-1')
+    card.textContent = 'original'
+    listA.appendChild(card)
+  })
+  const entryId = ids(scope).at(-1)
+  assert.equal(scope.undo()?.ok, true)
+
+  peer(scope, () => {
+    const duplicate = doc.createElement('li')
+    duplicate.setAttribute('data-id', 'card-1')
+    duplicate.textContent = 'peer'
+    doc.getElementById('b').appendChild(duplicate)
+  })
+
+  const before = bytes(doc)
+  const result = scope.redo()
+
+  assert.equal(result?.ok, false, 'redo may not create a second live node with one durable id')
+  assert.equal(result.code, 'duplicate-id')
+  assert.equal(result.entryId, entryId)
+  assert.equal(bytes(doc), before)
+  assert.equal(doc.querySelectorAll('[data-id="card-1"]').length, 1)
+})
+
+test('redo of an add refuses when a peer node carries an id nested in the added subtree', () => {
+  const { doc, scope } = board('<ul id="a"></ul><ul id="b"></ul>', { recording: 'commands' })
+  const listA = doc.getElementById('a')
+  scope.command('Add card', () => {
+    const card = doc.createElement('li')
+    card.setAttribute('data-id', 'card-1')
+    const label = doc.createElement('span')
+    label.setAttribute('data-id', 'label-1')
+    label.textContent = 'Label'
+    card.appendChild(label)
+    listA.appendChild(card)
+  })
+  const entryId = ids(scope).at(-1)
+  assert.equal(scope.undo()?.ok, true)
+
+  peer(scope, () => {
+    const duplicate = doc.createElement('span')
+    duplicate.setAttribute('data-id', 'label-1')
+    duplicate.textContent = 'Peer label'
+    doc.getElementById('b').appendChild(duplicate)
+  })
+
+  const before = bytes(doc)
+  const result = scope.redo()
+
+  assert.equal(result?.ok, false)
+  assert.equal(result.code, 'duplicate-id', 'a descendant identity that is live again refuses the redo')
+  assert.equal(result.entryId, entryId)
+  assert.equal(bytes(doc), before)
+  assert.equal(doc.querySelectorAll('[data-id="label-1"]').length, 1)
+})
+
+test('rolling back a move puts the card back in the list and position it held', () => {
+  const { doc, scope } = board('<p id="title" data-v="old">Title</p><ul id="a" data-id="a"><li data-id="card-1">Alpha</li><li data-id="card-2">Beta</li></ul><ul id="b" data-id="b"></ul>', { recording: 'commands' })
+  const title = doc.getElementById('title')
+  const listA = doc.getElementById('a')
+  const listB = doc.getElementById('b')
+  const card = doc.querySelector('[data-id="card-1"]')
+  scope.commit('Edit and move', () => {
+    title.setAttribute('data-v', 'new')
+    listB.appendChild(card)
+  })
+  const entryId = ids(scope).at(-1)
+  const before = bytes(doc)
+
+  const setAttribute = title.setAttribute.bind(title)
+  title.setAttribute = (name, value) => {
+    if (value === 'old') throw new Error('fixture DOM failure')
+    setAttribute(name, value)
+  }
+  const result = scope.undo()
+
+  assert.equal(result?.ok, false)
+  assert.equal(result.code, 'replay-error')
+  assert.equal(result.entryId, entryId)
+  assert.equal(bytes(doc), before, 'the rolled-back move puts the card back where it was')
+  assert.equal(card.parentNode, listB, 'the card is in neither list before the rollback undoes the move')
+  assert.equal(listB.firstElementChild, card, 'and in its original position')
+  assert.equal(listA.children.length, 1)
+  assert.equal(scope.canUndo, true)
+  assert.equal(scope.canRedo, false)
+})
+
+test('redo of an add that was followed by a write inside the new node succeeds', () => {
+  const { doc, scope } = board('<ul id="list"></ul>', { recording: 'commands' })
+  const list = doc.getElementById('list')
+  scope.command('Add card', () => {
+    const card = doc.createElement('li')
+    card.setAttribute('data-id', 'card-1')
+    list.appendChild(card)
+    card.setAttribute('data-title', 'New')
+  })
+  const end = bytes(doc)
+
+  assert.equal(scope.undo()?.ok, true, 'undo removes the node the entry added, write and all')
+  assert.equal(list.children.length, 0)
+
+  assert.equal(scope.redo()?.ok, true, 'redo re-inserts it and the write is judged against the planned structure')
+  assert.equal(bytes(doc), end)
+  assert.equal(list.firstElementChild.getAttribute('data-title'), 'New')
+})
+
+test('undo of a text edit and a delete in one automatic entry restores the card and its old text', async () => {
+  const { doc, scope } = board('<ul id="list"><li data-id="card-1">Alpha</li><li data-id="card-2">Beta</li></ul>', { idleWindowMs: 50 })
+  const list = doc.getElementById('list')
+  const card = doc.querySelector('[data-id="card-2"]')
+  const start = bytes(doc)
+
+  card.firstChild.data = 'Beta edited'
+  await tick(0)
+  card.remove()
+  assert.equal(await nextCommit(scope), true)
+  assert.equal(scope.history.length, 1, 'both mutations close as one idle batch')
+
+  assert.equal(scope.undo()?.ok, true, 'the edit is planned on a node the same entry restores')
+  assert.equal(bytes(doc), start)
+  assert.equal(doc.querySelector('[data-id="card-2"]'), card)
+  assert.equal(card.firstChild.data, 'Beta', 'the restored card carries its pre-entry text')
+  assert.equal(list.children.length, 2)
+})
+
 test('a refused text step names the nearest element that carries a data-id', () => {
   const { doc, scope } = board('<article class="entry" data-id="e-1"><div class="body"><p id="para">first</p></div></article>')
   const text = doc.getElementById('para').firstChild
