@@ -49,7 +49,10 @@ function childIdentities(parent, isIgnored) {
 // track is still part of what an undo would erase. The one exception is a
 // predicate for attributes the scope never records, on any node of the subtree:
 // a value the scope ignores must not make the entry refuse to replay.
-export function durableProjection(node, ignoredAttribute) {
+// `host` is the element a removed subtree belongs under. A detached node has no
+// ancestors left, so a predicate that reads them (is this attribute painted by an
+// app above it?) receives the host and answers as it did while attached.
+export function durableProjection(node, ignoredAttribute, host = null) {
   if (!isNode(node)) return null
   if (node.nodeType === 3) return `#text:${JSON.stringify(node.data)}`
   if (node.nodeType === 8) return `#comment:${JSON.stringify(node.data)}`
@@ -57,13 +60,13 @@ export function durableProjection(node, ignoredAttribute) {
   const attributes = []
   if (node.attributes) {
     for (const attr of node.attributes) {
-      if (isIgnoredAttribute(attr.name, node, ignoredAttribute)) continue
+      if (isIgnoredAttribute(attr.name, node, ignoredAttribute, host)) continue
       attributes.push(`${attr.name}=${JSON.stringify(attr.value)}`)
     }
     attributes.sort()
   }
   const children = []
-  if (node.childNodes) for (const child of node.childNodes) children.push(durableProjection(child, ignoredAttribute))
+  if (node.childNodes) for (const child of node.childNodes) children.push(durableProjection(child, ignoredAttribute, host))
   const tag = String(node.tagName || '').toLowerCase()
   return `<${tag}${attributes.length ? ` ${attributes.join(' ')}` : ''}>${children.join('')}</>`
 }
@@ -78,9 +81,9 @@ function durableIdsIn(node, out = []) {
   return out
 }
 
-function isIgnoredAttribute(name, node, predicate) {
+function isIgnoredAttribute(name, node, predicate, host = null) {
   if (typeof predicate !== 'function') return false
-  try { return !!predicate(name, node) } catch (_) { return false }
+  try { return !!predicate(name, node, host) } catch (_) { return false }
 }
 
 function protectedWithin(nodes, isProtected) {
@@ -269,7 +272,7 @@ function structuralStep(item, state, ignoredAttribute) {
     seqBefore: state.before,
     seqAfter: state.after,
     slot: item.primitive,
-    content: item.nodes.map((node) => durableProjection(node, ignoredAttribute)),
+    content: item.nodes.map((node) => durableProjection(node, ignoredAttribute, item.parent)),
     ids: kind === 'remove' ? item.nodes.flatMap((node) => durableIdsIn(node)) : [],
     targets: targetsOf(item.nodes, kind === 'add' ? 'added' : 'removed'),
   }
@@ -356,7 +359,7 @@ function checkAdd(step, undoing, context) {
     const protectedTargets = protectedWithin(step.nodes, context.isProtected)
     if (protectedTargets.length > 0) return refuseStep('protected', protectedTargets)
     for (let i = 0; i < step.nodes.length; i++) {
-      if (durableProjection(step.nodes[i], context.ignoreAttribute) !== step.content[i]) return refuseStep('content-changed', step.targets)
+      if (durableProjection(step.nodes[i], context.ignoreAttribute, step.parent) !== step.content[i]) return refuseStep('content-changed', step.targets)
     }
     for (const node of step.nodes) context.operations.push({ type: 'remove', node })
     context.sim.set(step.parent, step.seqBefore.slice())
@@ -383,7 +386,7 @@ function checkRestore(step, undoing, context) {
     if (!sameSequence(listFor(context, step.parent), step.seqAfter)) return refuseStep('structure-changed', step.targets)
     for (let i = 0; i < step.nodes.length; i++) {
       const node = step.nodes[i]
-      if (node.parentNode || durableProjection(node, context.ignoreAttribute) !== step.content[i]) return refuseStep('content-changed', step.targets)
+      if (node.parentNode || durableProjection(node, context.ignoreAttribute, step.parent) !== step.content[i]) return refuseStep('content-changed', step.targets)
     }
     if (step.ids.length > 0 && context.liveNodesWithIds(step.ids).length > 0) return refuseStep('duplicate-id', step.targets)
     const at = slotIndex(step.seqAfter, step.slot)
@@ -403,7 +406,7 @@ function checkRestore(step, undoing, context) {
   if (protectedTargets.length > 0) return refuseStep('protected', protectedTargets)
   for (let i = 0; i < step.nodes.length; i++) {
     const node = step.nodes[i]
-    if (node.parentNode !== step.parent || durableProjection(node, context.ignoreAttribute) !== step.content[i]) return refuseStep('content-changed', step.targets)
+    if (node.parentNode !== step.parent || durableProjection(node, context.ignoreAttribute, step.parent) !== step.content[i]) return refuseStep('content-changed', step.targets)
   }
   for (const node of step.nodes) context.operations.push({ type: 'remove', node })
   context.sim.set(step.parent, step.seqAfter.slice())

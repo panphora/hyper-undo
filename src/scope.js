@@ -190,9 +190,10 @@ export function createScope(opts) {
 
   // The same predicate the recorder uses, asked about an attribute the
   // certificate is projecting rather than about a live record.
-  function isIgnoredAttribute(name, node) {
+  // `host` is the parent a removed subtree belongs under (see durableProjection).
+  function isIgnoredAttribute(name, node, host = null) {
     if (typeof config.ignoreAttribute !== 'function') return false
-    try { return !!config.ignoreAttribute(name, node) } catch (_) { return false }
+    try { return !!config.ignoreAttribute(name, node, host) } catch (_) { return false }
   }
 
   function isProtectedNode(node) {

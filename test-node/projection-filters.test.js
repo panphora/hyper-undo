@@ -255,3 +255,31 @@ test('create() forwards the isProtected option like the other scope options', ()
     scope.stop()
   }
 })
+
+// A predicate that reads a node's ancestors (an app's painted attribute) cannot
+// ask a detached subtree; the engine passes the parent it belongs under, so a
+// removal's projection is the same while detached as after it is restored, and
+// redo of a deleted list is not refused for content the app painted.
+test('a removed subtree is projected with its host, so redo of a deletion is not refused for a painted attribute', async () => {
+  const dom = makeDom('<!DOCTYPE html><html><head></head><body><main app><ul id="board"><li id="list" data-id="list-1" painted="x">List<b data-id="c1" painted="y">Card</b></li></ul></main></body></html>')
+  const doc = dom.window.document
+  const insideApp = (el, host) => {
+    for (let cur = el; cur; cur = cur.parentElement) if (cur.hasAttribute('app')) return true
+    return !!host && !el.isConnected && insideApp(host)
+  }
+  const scope = createScope({
+    scope: doc.body,
+    idleWindowMs: 20,
+    ignoreAttribute: (name, node, host) => name === 'painted' && insideApp(node, host),
+  })
+  scope.start()
+  scope.setRecording('commands')
+  const list = doc.querySelector('#list')
+  scope.command('Delete list', () => list.remove())
+  const undone = scope.undo()
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  list.setAttribute('painted', 'repainted')
+  const redone = scope.redo()
+  assert.equal(redone.ok, true, JSON.stringify(redone))
+  assert.equal(doc.querySelector('#list'), null)
+})
