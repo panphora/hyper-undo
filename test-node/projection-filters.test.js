@@ -57,6 +57,30 @@ test('before: undo of an add refuses when an unignored attribute of the card cha
   assert.deepEqual(ids(scope), [entryId])
 })
 
+test('an ignored child added under an added list does not refuse its undo', () => {
+  const { doc, scope } = board('<ul id="list" data-id="list"><li class="card" data-id="card-1">Alpha</li></ul>')
+  const list = doc.querySelector('#list')
+  scope.commit('Add list', () => {
+    const added = doc.createElement('ul')
+    added.setAttribute('data-id', 'list-2')
+    added.innerHTML = '<li class="card" data-id="card-2">Beta</li>'
+    list.appendChild(added)
+  })
+  const card = doc.querySelector('[data-id="card-2"]')
+
+  peer(scope, () => {
+    const form = doc.createElement('div')
+    form.setAttribute('no-undo', '')
+    form.textContent = 'Add a card'
+    card.appendChild(form)
+  })
+
+  const undone = scope.undo()
+
+  assert.equal(undone.ok, true, 'a region the scope never records must not block the undo that removes its host')
+  assert.equal(doc.querySelector('[data-id="list-2"]'), null)
+})
+
 test('after: an ignored attribute changed on the added card does not refuse its undo', () => {
   const { doc, scope } = board('<ul id="list" data-id="list"><li class="card" data-id="card-1">Alpha</li></ul>', { ignoreAttribute: derivedAttribute })
   const list = doc.querySelector('#list')

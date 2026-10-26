@@ -48,11 +48,12 @@ function childIdentities(parent, isIgnored) {
 // the exact child order. Deliberately strict — a field the recorder does not
 // track is still part of what an undo would erase. The one exception is a
 // predicate for attributes the scope never records, on any node of the subtree:
-// a value the scope ignores must not make the entry refuse to replay.
+// a value the scope ignores must not make the entry refuse to replay. A subtree
+// region the scope ignores is skipped whole, like an ignored attribute.
 // `host` is the element a removed subtree belongs under. A detached node has no
 // ancestors left, so a predicate that reads them (is this attribute painted by an
 // app above it?) receives the host and answers as it did while attached.
-export function durableProjection(node, ignoredAttribute, host = null) {
+export function durableProjection(node, ignoredAttribute, host = null, ignoredNode = null) {
   if (!isNode(node)) return null
   if (node.nodeType === 3) return `#text:${JSON.stringify(node.data)}`
   if (node.nodeType === 8) return `#comment:${JSON.stringify(node.data)}`
@@ -66,7 +67,12 @@ export function durableProjection(node, ignoredAttribute, host = null) {
     attributes.sort()
   }
   const children = []
-  if (node.childNodes) for (const child of node.childNodes) children.push(durableProjection(child, ignoredAttribute, host))
+  if (node.childNodes) {
+    for (const child of node.childNodes) {
+      if (isIgnoredNode(child, ignoredNode)) continue
+      children.push(durableProjection(child, ignoredAttribute, host, ignoredNode))
+    }
+  }
   const tag = String(node.tagName || '').toLowerCase()
   return `<${tag}${attributes.length ? ` ${attributes.join(' ')}` : ''}>${children.join('')}</>`
 }
@@ -86,6 +92,11 @@ function isIgnoredAttribute(name, node, predicate, host = null) {
   try { return !!predicate(name, node, host) } catch (_) { return false }
 }
 
+function isIgnoredNode(node, predicate) {
+  if (typeof predicate !== 'function') return false
+  try { return !!predicate(node) } catch (_) { return false }
+}
+
 function protectedWithin(nodes, isProtected) {
   if (typeof isProtected !== 'function') return []
   const found = []
@@ -100,16 +111,17 @@ function protectedWithin(nodes, isProtected) {
   return found
 }
 
-export function described(node, kind) {
+export function described(node, kind, parent = null) {
   let host = node
   if (host && host.nodeType !== 1) host = host.parentElement
-  const owner = host && typeof host.closest === 'function' ? host.closest('[data-id]') : null
+  let owner = host && typeof host.closest === 'function' ? host.closest('[data-id]') : null
+  if (!owner && parent && typeof parent.closest === 'function') owner = parent.closest('[data-id]')
   const id = owner ? owner.getAttribute('data-id') : null
   return { id: id || null, kind: kind || null }
 }
 
-function targetsOf(nodes, kind) {
-  return (nodes || []).filter(isNode).map((node) => described(node, kind))
+function targetsOf(nodes, kind, parent = null) {
+  return (nodes || []).filter(isNode).map((node) => described(node, kind, parent))
 }
 
 function unsupported(reason) {
@@ -171,7 +183,7 @@ export function compileCertificate(primitives, env = {}) {
       if (move.at === item) steps.push(move.step)
       continue
     }
-    steps.push(structuralStep(item, states.get(item), ignoredAttribute))
+    steps.push(structuralStep(item, states.get(item), ignoredAttribute, isIgnored))
   }
   return { replayable: true, reason: null, steps }
 }
@@ -264,7 +276,7 @@ function pairMoves(structural, states) {
   return moves
 }
 
-function structuralStep(item, state, ignoredAttribute) {
+function structuralStep(item, state, ignoredAttribute, ignoredNode) {
   const kind = item.primitive.kind
   return {
     type: kind === 'add' ? 'add' : 'restore',
@@ -273,9 +285,9 @@ function structuralStep(item, state, ignoredAttribute) {
     seqBefore: state.before,
     seqAfter: state.after,
     slot: item.primitive,
-    content: item.nodes.map((node) => durableProjection(node, ignoredAttribute, item.parent)),
+    content: item.nodes.map((node) => durableProjection(node, ignoredAttribute, item.parent, ignoredNode)),
     ids: kind === 'remove' ? item.nodes.flatMap((node) => durableIdsIn(node)) : [],
-    targets: targetsOf(item.nodes, kind === 'add' ? 'added' : 'removed'),
+    targets: targetsOf(item.nodes, kind === 'add' ? 'added' : 'removed', item.parent),
   }
 }
 
@@ -319,6 +331,13 @@ function inPlannedScope(node, context) {
     if (context.planned.has(n)) return context.planned.get(n)
   }
   return context.inScope(node)
+}
+
+// A duplicate identity is one that would still be live when this step inserts
+// its own node: a node an earlier step of the same replay removes (or one under
+// it) is leaving, so it does not collide.
+function liveDuplicates(ids, context) {
+  return context.liveNodesWithIds(ids).filter((node) => inPlannedScope(node, context)).length > 0
 }
 
 function refuseStep(code, targets) {
@@ -368,7 +387,7 @@ function checkAdd(step, undoing, context) {
     const protectedTargets = protectedWithin(step.nodes, context.isProtected)
     if (protectedTargets.length > 0) return refuseStep('protected', protectedTargets)
     for (let i = 0; i < step.nodes.length; i++) {
-      if (durableProjection(step.nodes[i], context.ignoreAttribute, step.parent) !== step.content[i]) return refuseStep('content-changed', step.targets)
+      if (durableProjection(step.nodes[i], context.ignoreAttribute, step.parent, context.isIgnored) !== step.content[i]) return refuseStep('content-changed', step.targets)
     }
     for (const node of step.nodes) {
       context.operations.push({ type: 'remove', node })
@@ -382,7 +401,7 @@ function checkAdd(step, undoing, context) {
     if (node.parentNode) return refuseStep('structure-changed', step.targets)
   }
   const ids = step.nodes.flatMap((node) => durableIdsIn(node))
-  if (ids.length > 0 && context.liveNodesWithIds(ids).length > 0) return refuseStep('duplicate-id', step.targets)
+  if (ids.length > 0 && liveDuplicates(ids, context)) return refuseStep('duplicate-id', step.targets)
   const at = slotIndex(step.seqBefore, step.slot)
   if (at == null) return refuseStep('unsupported', step.targets)
   let inserted = step.seqBefore.slice()
@@ -403,9 +422,9 @@ function checkRestore(step, undoing, context) {
     if (!sameSequence(listFor(context, step.parent), step.seqAfter)) return refuseStep('structure-changed', step.targets)
     for (let i = 0; i < step.nodes.length; i++) {
       const node = step.nodes[i]
-      if (node.parentNode || durableProjection(node, context.ignoreAttribute, step.parent) !== step.content[i]) return refuseStep('content-changed', step.targets)
+      if (node.parentNode || durableProjection(node, context.ignoreAttribute, step.parent, context.isIgnored) !== step.content[i]) return refuseStep('content-changed', step.targets)
     }
-    if (step.ids.length > 0 && context.liveNodesWithIds(step.ids).length > 0) return refuseStep('duplicate-id', step.targets)
+    if (step.ids.length > 0 && liveDuplicates(step.ids, context)) return refuseStep('duplicate-id', step.targets)
     const at = slotIndex(step.seqAfter, step.slot)
     if (at == null) return refuseStep('unsupported', step.targets)
     let restored = step.seqAfter.slice()
@@ -424,7 +443,7 @@ function checkRestore(step, undoing, context) {
   if (protectedTargets.length > 0) return refuseStep('protected', protectedTargets)
   for (let i = 0; i < step.nodes.length; i++) {
     const node = step.nodes[i]
-    if (node.parentNode !== step.parent || durableProjection(node, context.ignoreAttribute, step.parent) !== step.content[i]) return refuseStep('content-changed', step.targets)
+    if (node.parentNode !== step.parent || durableProjection(node, context.ignoreAttribute, step.parent, context.isIgnored) !== step.content[i]) return refuseStep('content-changed', step.targets)
   }
   for (const node of step.nodes) {
     context.operations.push({ type: 'remove', node })

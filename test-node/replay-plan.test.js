@@ -410,6 +410,27 @@ test('redo of an add refuses when a peer node already carries the added durable 
   assert.equal(doc.querySelectorAll('[data-id="card-1"]').length, 1)
 })
 
+test('replacing a node with a new node of the same id undoes and redoes', () => {
+  const { doc, scope } = board('<ul id="list"><li data-id="c1">Old card</li></ul>', { recording: 'commands' })
+  const list = doc.getElementById('list')
+  const start = bytes(doc)
+  scope.command('Replace card', () => {
+    list.querySelector('[data-id="c1"]').remove()
+    const card = doc.createElement('li')
+    card.setAttribute('data-id', 'c1')
+    card.textContent = 'New card'
+    list.appendChild(card)
+  })
+  const end = bytes(doc)
+
+  assert.equal(scope.undo()?.ok, true, 'the replacement node this undo removes is not a live duplicate')
+  assert.equal(bytes(doc), start)
+  assert.equal(doc.querySelector('[data-id="c1"]').textContent, 'Old card')
+  assert.equal(scope.redo()?.ok, true, 'the removed card this redo removes is not a live duplicate either')
+  assert.equal(bytes(doc), end)
+  assert.equal(doc.querySelector('[data-id="c1"]').textContent, 'New card')
+})
+
 test('redo of an add refuses when a peer node carries an id nested in the added subtree', () => {
   const { doc, scope } = board('<ul id="a"></ul><ul id="b"></ul>', { recording: 'commands' })
   const listA = doc.getElementById('a')
