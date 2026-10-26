@@ -1,4 +1,5 @@
-import { recordsToPrimitives, replayForward, replayReverse } from './primitives.js'
+import { recordsToPrimitives } from './primitives.js'
+import { compileCertificate, preflight, applyOperations } from './replay-plan.js'
 import { shouldIgnore } from './filter.js'
 import { createEmitter } from './emitter.js'
 
@@ -15,8 +16,11 @@ export function createScope(opts) {
   if (!config.scope) throw new Error('hyper-undo: scope is required')
 
   const emitter = createEmitter()
-  const undoStack = []        // [{ label, timestamp, primitives }]
+  const undoStack = []        // [{ id, label, timestamp, primitives, certificate }]
   const redoStack = []        // same shape
+  const entryPrefix = `u${Math.random().toString(36).slice(2, 8)}`
+  let entryCount = 0
+  let refusedTop = null       // { entryId, direction, code, targets } for the top entry
   let pendingPrimitives = []  // primitives collected since last commit
   let idleTimer = null
   let observer = null
@@ -68,6 +72,7 @@ export function createScope(opts) {
     undoStack.length = 0
     redoStack.length = 0
     pendingPrimitives = []
+    refusedTop = null
     pauseDepth = 0   // reset so a reused (created) scope doesn't restart paused
     log('stopped')
   }
@@ -122,11 +127,22 @@ export function createScope(opts) {
   // --- Commit machinery ---
 
   function pushCommit(label, primitives) {
-    undoStack.push({ label, timestamp: Date.now(), primitives })
+    const certificate = compileCertificate(primitives, { isIgnored: isIgnoredNode })
+    if (certificate.steps.length === 0) {
+      log('commit', label, 'with nothing to record')
+      emitter.emit('commit')
+      return
+    }
+    undoStack.push({ id: `${entryPrefix}-${++entryCount}`, label, timestamp: Date.now(), primitives, certificate })
     redoStack.length = 0
+    refusedTop = null
     while (undoStack.length > config.maxHistory) undoStack.shift()
     log('commit', label, 'primitives:', primitives.length)
     emitter.emit('commit')
+  }
+
+  function isIgnoredNode(node) {
+    return shouldIgnore(node, config.ignoreAttribute)
   }
 
   // Explicit commit: caller-driven, synchronous fn.
@@ -234,39 +250,92 @@ export function createScope(opts) {
 
   // --- Undo/redo ---
 
-  function undo() {
-    if (scopeDisconnected()) { stop(); return }
-    flush()  // close any pending typing first
-    const c = undoStack.pop()
-    if (!c) return
+  // One entry is applied whole or not at all. Preflight compares the certificate
+  // against the live document without writing; only a fully validated plan
+  // reaches the DOM, and a native failure rolls it back and keeps both stacks.
+  function replay(direction, requestedId) {
+    if (scopeDisconnected()) { stop(); return { ok: false, code: 'disconnected' } }
+    flush()
+    const source = direction === 'undo' ? undoStack : redoStack
+    const destination = direction === 'undo' ? redoStack : undoStack
+    const entry = source.at(-1)
+    if (!entry) return { ok: false, code: 'empty' }
+    if (requestedId && requestedId !== entry.id) {
+      const requested = findEntry(requestedId) || entry
+      return refuse(requested, direction, 'stale-entry')
+    }
+    const checked = preflight(entry.certificate, direction, {
+      isIgnored: isIgnoredNode,
+      inScope,
+      liveNodesWithIds,
+    })
+    if (!checked.ok) return refuse(entry, direction, checked.code, checked.targets)
     pause()
+    let applied
     try {
-      // Reverse order so a child restore happens before its parent restore.
-      for (let i = c.primitives.length - 1; i >= 0; i--) {
-        try { replayReverse(c.primitives[i]) }
-        catch (err) { log('undo primitive failed (continuing)', err) }
-      }
-    } finally { resume() }
-    redoStack.push(c)
-    log('undo', c.label)
-    emitter.emit('undo')
+      applied = applyOperations(checked.operations)
+    } finally {
+      resume()
+    }
+    if (!applied.ok) {
+      log(`${direction} failed and was rolled back`, applied.error)
+      return refuse(entry, direction, 'replay-error')
+    }
+    source.pop()
+    destination.push(entry)
+    refusedTop = null
+    const receipt = { ok: true, entryId: entry.id, label: entry.label, direction }
+    log(direction, entry.label)
+    emitter.emit(direction, receipt)
+    return receipt
   }
 
-  function redo() {
-    if (scopeDisconnected()) { stop(); return }
-    flush()
-    const c = redoStack.pop()
-    if (!c) return
-    pause()
-    try {
-      for (const p of c.primitives) {
-        try { replayForward(p) }
-        catch (err) { log('redo primitive failed (continuing)', err) }
-      }
-    } finally { resume() }
-    undoStack.push(c)
-    log('redo', c.label)
-    emitter.emit('redo')
+  function undo(opts) { return replay('undo', opts && opts.entryId) }
+  function redo(opts) { return replay('redo', opts && opts.entryId) }
+
+  function findEntry(entryId) {
+    return undoStack.find((entry) => entry.id === entryId) || redoStack.find((entry) => entry.id === entryId) || null
+  }
+
+  function refuse(entry, direction, code, targets = []) {
+    refusedTop = { entryId: entry.id, direction, code, targets }
+    log('refused', direction, code)
+    emitter.emit('refused', { entryId: entry.id, label: entry.label, direction, code, targets })
+    return { ok: false, code, entryId: entry.id, label: entry.label, direction }
+  }
+
+  // Explicit dismissal of the refused top entry only: the document and every
+  // other entry stay exactly as they are.
+  function discard(entryId) {
+    if (!refusedTop || refusedTop.entryId !== entryId) return { ok: false, code: 'not-refused', entryId }
+    const direction = refusedTop.direction
+    const stack = direction === 'undo' ? undoStack : redoStack
+    const entry = stack.at(-1)
+    if (!entry || entry.id !== entryId) return { ok: false, code: 'stale-entry', entryId }
+    stack.pop()
+    refusedTop = null
+    log('discarded', entry.label)
+    return { ok: true, entryId, direction }
+  }
+
+  function inScope(node) {
+    const root = config.scope
+    if (!node || !root) return false
+    if (node === root) return true
+    return typeof root.contains === 'function' ? root.contains(node) : false
+  }
+
+  function liveNodesWithIds(ids) {
+    const root = config.scope
+    if (!ids || ids.length === 0 || typeof root?.querySelectorAll !== 'function') return []
+    const wanted = new Set(ids)
+    const found = []
+    for (const el of root.querySelectorAll('[data-id]')) {
+      if (!wanted.has(el.getAttribute('data-id'))) continue
+      if (isIgnoredNode(el)) continue
+      found.push(el)
+    }
+    return found
   }
 
   function clear() {
@@ -277,6 +346,7 @@ export function createScope(opts) {
     undoStack.length = 0
     redoStack.length = 0
     pendingPrimitives = []
+    refusedTop = null
     clearIdleTimer()
     log('cleared')
     emitter.emit('clear')
@@ -289,14 +359,20 @@ export function createScope(opts) {
     start, stop,
     commit, commitCaptured, discardCaptured, flush,
     record, recordValue,
-    undo, redo, clear,
+    undo, redo, clear, discard,
     pause, resume,
     on: emitter.on, off: emitter.off,
     get canUndo() { return undoStack.length > 0 },
     get canRedo() { return redoStack.length > 0 },
     get isPaused() { return pauseDepth > 0 },
     get history() {
-      return undoStack.map(c => ({ label: c.label, timestamp: c.timestamp }))
+      return undoStack.map(c => {
+        const entry = { id: c.id, label: c.label, timestamp: c.timestamp }
+        if (refusedTop && refusedTop.entryId === c.id) {
+          entry.refused = { direction: refusedTop.direction, code: refusedTop.code, targets: refusedTop.targets }
+        }
+        return entry
+      })
     },
     get scope() { return config.scope },
   }

@@ -53,10 +53,10 @@ export function recordToPrimitives(record, ignoreNode = null) {
       ? Array.from(record.removedNodes).filter((n) => !ignoreNode(n))
       : Array.from(record.removedNodes)
     if (added.length > 0) {
-      out.push({ kind: 'add', parent, nodes: added, before, afterAuthored, beforeAuthored })
+      out.push({ kind: 'add', parent, nodes: added, before, afterAuthored, beforeAuthored, record })
     }
     if (removed.length > 0) {
-      out.push({ kind: 'remove', parent, nodes: removed, before, afterAuthored, beforeAuthored })
+      out.push({ kind: 'remove', parent, nodes: removed, before, afterAuthored, beforeAuthored, record })
     }
     return out
   }
@@ -117,6 +117,62 @@ export function recordsToPrimitives(records, ignoreNode = null) {
   }
 
   return out.filter((p) => p != null)
+}
+
+// Entry-wide scalar normalization. An entry spans several observer deliveries
+// (a command's records, then its idle neighbours), so the same field can appear
+// more than once. Keep ONE primitive per (target, field) carrying the first old
+// value and the final new value, and drop the ones whose endpoints are equal:
+// undo must walk back to the value before the entry, not to an intermediate one.
+export function normalizePrimitives(primitives) {
+  const out = []
+  const slots = new Map()   // target → Map(field → index in out)
+
+  for (const p of primitives) {
+    const field = scalarField(p)
+    if (field == null) { out.push(p); continue }
+    let byField = slots.get(p.target)
+    if (!byField) { byField = new Map(); slots.set(p.target, byField) }
+    const at = byField.get(field)
+    if (at == null) {
+      const endpoints = scalarEndpoints(p)
+      if (endpoints.oldValue === endpoints.newValue) continue
+      byField.set(field, out.length)
+      out.push({ ...p, ...endpoints })
+    } else {
+      out[at] = { ...out[at], newValue: scalarEndpoints(p).newValue }
+    }
+  }
+
+  const normalized = []
+  for (const p of out) {
+    if (scalarField(p) == null) { normalized.push(p); continue }
+    if (p.oldValue === p.newValue) continue
+    normalized.push(reclassifyScalar(p))
+  }
+  return normalized
+}
+
+const SCALAR_KINDS = new Set(['attr-set', 'attr-add', 'attr-remove', 'text', 'value'])
+
+function scalarField(p) {
+  if (!SCALAR_KINDS.has(p.kind)) return null
+  if (p.kind === 'text') return '#text'
+  if (p.kind === 'value') return `#${p.prop || 'value'}`
+  return p.name == null ? null : `@${p.name}`
+}
+
+function scalarEndpoints(p) {
+  if (p.kind === 'attr-add') return { oldValue: null, newValue: p.newValue }
+  if (p.kind === 'attr-remove') return { oldValue: p.oldValue, newValue: null }
+  return { oldValue: p.oldValue, newValue: p.newValue }
+}
+
+function reclassifyScalar(p) {
+  if (p.kind !== 'attr-add' && p.kind !== 'attr-remove') return p
+  if (p.oldValue == null && p.newValue != null) return { ...p, kind: 'attr-add' }
+  if (p.oldValue != null && p.newValue == null) return { ...p, kind: 'attr-remove' }
+  return { ...p, kind: 'attr-set' }
 }
 
 // Forward replay. Used by redo().

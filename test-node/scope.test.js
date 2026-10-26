@@ -315,7 +315,7 @@ for (const attr of ['no-save', 'no-trigger-autosave', 'freeze']) {
 
 // --- robustness ---
 
-test('undo continues past a primitive that throws (best-effort replay)', () => {
+test('undo that hits a throwing operation rolls back and keeps both stacks', () => {
   const { doc, scope } = mkScope('<!DOCTYPE html><body><div id="a" data-x="old"></div><p id="b">t</p></body>')
   scope.start()
   const a = doc.getElementById('a')
@@ -324,10 +324,16 @@ test('undo continues past a primitive that throws (best-effort replay)', () => {
     a.setAttribute('data-x', 'new')
     b.firstChild.data = 'changed'
   })
+  const entryId = scope.history.at(-1).id
   a.setAttribute = () => { throw new Error('boom') }   // poison the reverse of the attr-set
-  scope.undo()
-  assert.equal(b.firstChild.data, 't')     // the sibling primitive still reverted
-  assert.equal(scope.canRedo, true)        // commit still moved to the redo stack
+  const result = scope.undo()
+  assert.equal(result?.ok, false)
+  assert.equal(result.code, 'replay-error')
+  assert.equal(result.entryId, entryId)
+  assert.equal(a.getAttribute('data-x'), 'new', 'the field whose write threw is left as it was')
+  assert.equal(b.firstChild.data, 'changed', 'and the sibling operation is rolled back, not half applied')
+  assert.equal(scope.canUndo, true, 'a failed replay retains the undo stack')
+  assert.equal(scope.canRedo, false, 'and never moves the entry to the redo stack')
 })
 
 test('a throwing ignoreAttribute predicate does not break recording', () => {
