@@ -1,12 +1,17 @@
 // Is the key being pressed inside a native editable control (or an editable
 // subtree)? The browser's own undo belongs there, not the page stack's.
+const NO_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'file', 'range', 'color'])
+
 function ownsNativeUndo(event) {
   const path = typeof event.composedPath === 'function' ? event.composedPath() : []
   const nodes = path.length > 0 ? path : chainFromTarget(event.target)
   for (const node of nodes) {
     if (!node || node.nodeType !== 1) continue
     const tag = String(node.tagName || '').toUpperCase()
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+    if (tag === 'TEXTAREA' || tag === 'SELECT') return true
+    // An input that takes no typed text has no native undo of its own: a checkbox,
+    // a radio or a button leaves the key to the page stack.
+    if (tag === 'INPUT' && !NO_TEXT_INPUTS.has(String(node.type || node.getAttribute?.('type') || 'text').toLowerCase())) return true
     if (node.isContentEditable === true) return true
     // jsdom (and older engines) do not resolve isContentEditable, so read the
     // declaration itself; an unset or explicit "false" is not editable.

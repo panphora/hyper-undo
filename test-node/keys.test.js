@@ -157,3 +157,14 @@ test('target inside an OverType editor bypasses, so the textarea keeps native un
 test('the shipped default actually carries the OverType selector', () => {
   assert.ok(undo.defaults.shadowKeydownIn.includes('.overtype-input'))
 })
+
+test('a checkbox and a radio leave Cmd+Z to the page stack; a text input keeps it', () => {
+  const dom = makeDom('<!DOCTYPE html><body><input id="c" type="checkbox"><input id="r" type="radio"><select id="s"><option>a</option></select><input id="t"><input id="e" type="email"></body>')
+  const scope = fakeScope()
+  const cleanup = installKeys(scope)
+  for (const id of ['c', 'r']) press(dom, dom.window.document.getElementById(id), { key: 'z', metaKey: true })
+  assert.deepEqual(scope.calls, ['undo', 'undo'])
+  for (const id of ['t', 'e']) press(dom, dom.window.document.getElementById(id), { key: 'z', metaKey: true })
+  assert.deepEqual(scope.calls, ['undo', 'undo'])
+  cleanup()
+})
