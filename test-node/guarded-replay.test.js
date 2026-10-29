@@ -137,6 +137,34 @@ test('probe 3: redo of that refused two-field step cannot overwrite the peer tit
   assert.equal(result?.ok, false, 'redo() must report that there is nothing safe to redo')
 })
 
+test('probe 3: redo compares against the value the undo wrote back', () => {
+  const { doc, scope } = board('<ul id="list"><li class="card" data-id="card-1" data-title="Alpha" data-due="2026-01-01">Alpha</li></ul>')
+  const card = doc.querySelector('[data-id="card-1"]')
+  scope.commit('Edit card', () => {
+    card.setAttribute('data-title', 'Local title')
+    card.setAttribute('data-due', '2026-02-02')
+  })
+
+  assert.equal(scope.undo()?.ok, true, 'the two-field step undoes while both fields still hold the local values')
+  assert.equal(card.getAttribute('data-title'), 'Alpha')
+  assert.equal(card.getAttribute('data-due'), '2026-01-01')
+
+  const redone = scope.redo()
+  assert.equal(redone?.ok, true, 'a redo whose fields hold the values the undo wrote back must replay, not refuse')
+  assert.equal(card.getAttribute('data-title'), 'Local title')
+  assert.equal(card.getAttribute('data-due'), '2026-02-02')
+
+  assert.equal(scope.undo()?.ok, true)
+  peer(scope, () => { card.setAttribute('data-title', 'Peer title') })
+
+  const before = bytes(doc)
+  const result = scope.redo()
+
+  assert.equal(card.getAttribute('data-title'), 'Peer title', 'and a redo whose field a peer changed is refused, leaving the peer value in place')
+  assert.equal(bytes(doc), before, 'the refused redo leaves the document unchanged')
+  assert.equal(result && result.code, 'content-changed')
+})
+
 test('the two-field step whose second field conflicts is refused whole', () => {
   const { doc, scope } = board('<ul id="list"><li class="card" data-id="card-1" data-title="Alpha" data-due="2026-01-01">Alpha</li></ul>')
   const card = doc.querySelector('[data-id="card-1"]')
@@ -186,8 +214,8 @@ test('replacing the target node with a new node of the same data-id refuses the 
 })
 
 test('probe 4: undo of a delete refuses while a peer node holds the same data-id', () => {
-  const { doc, scope } = board('<ul id="list" data-id="list"><li class="card" data-id="card-1">Alpha</li><li class="card" data-id="card-2">Beta</li></ul>')
-  const list = doc.querySelector('#list')
+  const { doc, scope } = board('<ul id="list" data-id="list"><li class="card" data-id="card-1">Alpha</li><li class="card" data-id="card-2">Beta</li></ul><ul id="archive" data-id="archive"></ul>')
+  const archive = doc.querySelector('#archive')
   scope.commit('Delete card', () => { doc.querySelector('[data-id="card-2"]').remove() })
   const entryId = ids(scope).at(-1)
 
@@ -196,18 +224,53 @@ test('probe 4: undo of a delete refuses while a peer node holds the same data-id
     restoredByPeer.className = 'card'
     restoredByPeer.setAttribute('data-id', 'card-2')
     restoredByPeer.textContent = 'Beta (peer copy)'
-    list.appendChild(restoredByPeer)
+    archive.appendChild(restoredByPeer)
   })
 
   const before = bytes(doc)
   const beforeIds = ids(scope)
   const result = scope.undo()
 
+  assert.equal(result && result.code, 'duplicate-id', 'the peer copy lives elsewhere in the document, so only the duplicate-id guard can refuse this restore')
   assert.equal(doc.querySelectorAll('[data-id="card-2"]').length, 1, 'undo must not create a second live card with the same data-id')
   assert.equal(bytes(doc), before, 'a refused restore leaves the peer copy as the only card-2')
   assert.deepEqual(ids(scope), beforeIds, 'a refusal leaves the undo stack untouched')
   assert.equal(scope.canRedo, false, 'a refusal does not move the entry to the redo stack')
   assertRefused(result, { entryId, direction: 'undo' })
+})
+
+test('probe 4: redo of an add refuses while a peer node holds the same data-id', () => {
+  const { doc, scope } = board('<ul id="list" data-id="list"><li class="card" data-id="card-1">Alpha</li></ul><ul id="archive" data-id="archive"></ul>')
+  const list = doc.querySelector('#list')
+  const archive = doc.querySelector('#archive')
+  scope.commit('Add card', () => {
+    const card = doc.createElement('li')
+    card.className = 'card'
+    card.setAttribute('data-id', 'card-2')
+    card.textContent = 'Beta'
+    list.appendChild(card)
+  })
+  const entryId = ids(scope).at(-1)
+  assert.equal(scope.undo()?.ok, true, 'the add undoes cleanly, so the entry sits on the redo stack')
+
+  peer(scope, () => {
+    const restoredByPeer = doc.createElement('li')
+    restoredByPeer.className = 'card'
+    restoredByPeer.setAttribute('data-id', 'card-2')
+    restoredByPeer.textContent = 'Beta (peer copy)'
+    archive.appendChild(restoredByPeer)
+  })
+
+  const before = bytes(doc)
+  const beforeIds = ids(scope)
+  const result = scope.redo()
+
+  assert.equal(result && result.code, 'duplicate-id', 'the peer copy lives elsewhere in the document, so only the duplicate-id guard can refuse this insert')
+  assert.equal(doc.querySelectorAll('[data-id="card-2"]').length, 1, 'redo must not insert a second live card with the same data-id')
+  assert.equal(bytes(doc), before, 'a refused redo leaves the document unchanged')
+  assert.deepEqual(ids(scope), beforeIds, 'a refusal leaves the redo stack untouched')
+  assert.equal(scope.canUndo, false, 'a refused redo does not move the entry back to the undo stack')
+  assertRefused(result, { entryId, direction: 'redo' })
 })
 
 test('undo of a delete refuses when the peer deleted the destination parent', () => {

@@ -151,6 +151,27 @@ test('a refused redo of a replaced text node names the element that carried it',
   assert.deepEqual(scope.describe(entry.id).refused.targets, [{ id: 'c1', kind: 'removed' }])
 })
 
+test('a refused redo of a text step names the element that carried the text node', () => {
+  const { doc, scope } = board('<ul data-id="list"><li data-id="c1"><h3 class="card-title">Title</h3></li></ul>')
+  const title = doc.querySelector('.card-title')
+  scope.commit('Rename card', () => { title.firstChild.data = 'Mine' })
+  const [entry] = scope.history
+  assert.equal(scope.undo()?.ok, true)
+
+  scope.pause()
+  try { title.firstChild.data = 'Theirs' } finally { scope.resume() }
+
+  const seen = []
+  const off = scope.on('refused', (payload) => seen.push(payload))
+  const receipt = scope.redo()
+  off()
+
+  assert.equal(receipt.ok, false)
+  assert.equal(receipt.code, 'content-changed')
+  assert.deepEqual(seen[0].targets, [{ id: 'c1', kind: 'text' }], 'a text step has no parent of its own, so it is named by the element that carries the text node')
+  assert.deepEqual(scope.describe(entry.id).refused.targets, [{ id: 'c1', kind: 'text' }])
+})
+
 test('a refused entry carries its direction, code and targets', () => {
   const { doc, scope } = board('<ul data-id="list"><li data-id="card-1">Alpha</li></ul>')
   const list = doc.querySelector('[data-id="list"]')
