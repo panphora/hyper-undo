@@ -19,8 +19,33 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-30
+
+### Added
+- Undo and redo can run as explicit commands: a command records only the writes it makes itself, also while a sync apply is paused, keeps an outer pause depth and returns a receipt.
+- `isProtected` option, which refuses an undo or redo that would erase protected content.
+- `ignoreNode` option, which in automatic mode drops a change record when every node it adds and removes is one you ignore.
+- `future` lists the redo stack in history's shape, next first, so a Redo control can name what it replays.
+- Discarding an entry emits a `discard` event.
+- `describe(entryId)`, which returns an entry, its refusal and every step as plain data, so a refused step can be kept as recovery.
+
+### Changed
+- Undo checks a whole entry before changing either stack. Each entry carries a certificate of what it touched, and a step whose target has changed since is refused, with both stacks kept.
+- A refused top entry can be discarded, and a failed operation rolls back the ones before it.
+- Cmd+Z on a checkbox, radio or button now reaches the page stack. Only fields that take typed text keep the browser's undo.
+- A commit's or command's own head writes belong to its entry, and a commit captures the title it changes as one value step.
+- A refused step names the nearest ancestor with a `data-id`, so a text step inside an entry is described as that entry.
+
 ### Fixed
-- Cmd+Z inside an OverType editor is left to the textarea, instead of a page-level undo that only restored its `data-value`
+- Cmd+Z inside an OverType editor is left to the textarea, instead of a page-level undo that only restored its `data-value`.
+- The undo guard ignores the attributes the scope ignores on every projected node.
+- A body scope fed by a document-wide record source drops records whose target is outside it, so a head write such as `document.title` text never joins an entry, and an explicit `recordValue` title stays the one title step.
+- The `ignoreAttribute` predicate receives the host a removed subtree belongs under, so a projection that reads ancestors matches while detached and after restore.
+- Redo of a deleted list is no longer refused as content-changed.
+- Redo of a multi-node add keeps the nodes in order.
+- Redo of an add refuses a reused durable id, descendants included, and the id check skips nodes the replay itself removes.
+- Rollback returns a moved node where it was, and scalar steps are judged against the replay's planned attachment.
+- A removed node is described by the element that held it, and ignored children stay out of projections.
 
 ## [0.6.2] - 2026-10-03
 
