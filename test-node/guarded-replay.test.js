@@ -475,3 +475,18 @@ test('an entryId that is not the top entry is refused as stale', () => {
   assert.equal(result.code, 'stale-entry')
   assert.equal(result.entryId, olderId)
 })
+
+test('a card moved out of a column that the same edit then removes comes back inside it on undo, and leaves again on redo', async () => {
+  const { doc, scope } = board('<main id="board"><section id="old"><span id="card" data-id="card-1">Card</span></section><article id="new"></article></main>')
+  const before = bytes(doc)
+  const board_ = doc.getElementById('board')
+  doc.getElementById('new').appendChild(doc.getElementById('card'))
+  board_.removeChild(doc.getElementById('old'))
+  scope.flush()
+  const after = bytes(doc)
+  assert.equal(scope.history.length, 1)
+  assert.equal(scope.undo().ok, true)
+  assert.equal(bytes(doc), before)
+  assert.equal(scope.redo().ok, true)
+  assert.equal(bytes(doc), after)
+})

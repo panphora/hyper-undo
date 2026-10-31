@@ -381,7 +381,7 @@ function checkScalar(step, undoing, context) {
 }
 
 function checkAdd(step, undoing, context) {
-  if (!isNode(step.parent) || !context.inScope(step.parent)) return refuseStep('target-detached', step.targets)
+  if (!isNode(step.parent) || !inPlannedScope(step.parent, context)) return refuseStep('target-detached', step.targets)
   if (undoing) {
     if (!sameSequence(listFor(context, step.parent), step.seqAfter)) return refuseStep('structure-changed', step.targets)
     const protectedTargets = protectedWithin(step.nodes, context.isProtected)
@@ -417,7 +417,7 @@ function checkAdd(step, undoing, context) {
 }
 
 function checkRestore(step, undoing, context) {
-  if (!isNode(step.parent) || !context.inScope(step.parent)) return refuseStep('target-detached', step.targets)
+  if (!isNode(step.parent) || !inPlannedScope(step.parent, context)) return refuseStep('target-detached', step.targets)
   if (undoing) {
     if (!sameSequence(listFor(context, step.parent), step.seqAfter)) return refuseStep('structure-changed', step.targets)
     for (let i = 0; i < step.nodes.length; i++) {
@@ -441,9 +441,13 @@ function checkRestore(step, undoing, context) {
   if (!sameSequence(listFor(context, step.parent), step.seqBefore)) return refuseStep('structure-changed', step.targets)
   const protectedTargets = protectedWithin(step.nodes, context.isProtected)
   if (protectedTargets.length > 0) return refuseStep('protected', protectedTargets)
+  // A child an earlier step of this replay moves out (a card moved to another
+  // column before its column is removed) is leaving, so the removed subtree is
+  // compared without it, as it was when it was recorded.
+  const leaving = (node) => context.planned.get(node) === true || (typeof context.isIgnored === 'function' && context.isIgnored(node))
   for (let i = 0; i < step.nodes.length; i++) {
     const node = step.nodes[i]
-    if (node.parentNode !== step.parent || durableProjection(node, context.ignoreAttribute, step.parent, context.isIgnored) !== step.content[i]) return refuseStep('content-changed', step.targets)
+    if (node.parentNode !== step.parent || durableProjection(node, context.ignoreAttribute, step.parent, leaving) !== step.content[i]) return refuseStep('content-changed', step.targets)
   }
   for (const node of step.nodes) {
     context.operations.push({ type: 'remove', node })
@@ -469,7 +473,7 @@ function checkMove(step, undoing, context) {
   const gap = undoing ? step.source.after : step.dest.before
   const slot = undoing ? step.sourceSlot : step.destSlot
   if (!isNode(fromParent) || !isNode(toParent)) return refuseStep('target-detached', step.targets)
-  if (!context.inScope(fromParent) || !context.inScope(toParent)) return refuseStep('target-detached', step.targets)
+  if (!inPlannedScope(fromParent, context) || !inPlannedScope(toParent, context)) return refuseStep('target-detached', step.targets)
   if (!sameSequence(fromList, expectedFrom)) return refuseStep('structure-changed', step.targets)
   const toGap = fromParent === toParent ? withoutIdentity(toList, nodeId) : toList
   if (!sameSequence(toGap, gap)) return refuseStep('structure-changed', step.targets)

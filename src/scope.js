@@ -154,7 +154,8 @@ export function createScope(opts) {
   // what it wrote there is one entry, so it may own the scope document's head
   // fields too; head's <title> stays with the bracket's own title capture.
   function convertRecords(records, bracketed = false) {
-    const kept = records.filter((r) => (observedHere(r.target) || (bracketed && inHead(r.target))) && !shouldIgnore(r.target, config.ignoreAttribute, r))
+    const removedHere = removedFromScope(records)
+    const kept = records.filter((r) => (observedHere(r.target) || removedHere(r.target) || (bracketed && inHead(r.target))) && !shouldIgnore(r.target, config.ignoreAttribute, r))
     return recordsToPrimitives(kept, (node) => shouldIgnore(node, config.ignoreAttribute))
   }
 
@@ -602,6 +603,29 @@ export function createScope(opts) {
     // A step kind this engine does not name yet keeps its own name and the same
     // JSON-safe endpoint shape rather than being dropped.
     return { kind: step.type, target, before, after }
+  }
+
+  // A subtree removed from the scope in this batch is detached by the time the
+  // batch is read, yet what happened inside it before the removal (a child moved
+  // out of it, say) belongs to the same edit: dropping it would restore the
+  // subtree as it was left, not as it was.
+  function removedFromScope(records) {
+    const removed = new Set()
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const r of records) {
+        if (r.type !== 'childList' || !r.removedNodes?.length) continue
+        if (!observedHere(r.target) && !insideRemoved(r.target, removed)) continue
+        for (const node of r.removedNodes) if (!removed.has(node)) { removed.add(node); grew = true }
+      }
+    }
+    return (node) => !observedHere(node) && insideRemoved(node, removed)
+  }
+
+  function insideRemoved(node, removed) {
+    for (let n = node; n; n = n.parentNode) if (removed.has(n)) return true
+    return false
   }
 
   function observedHere(node) {
