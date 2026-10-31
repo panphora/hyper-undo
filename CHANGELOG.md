@@ -19,6 +19,11 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-30
+
+### Fixed
+- Undo and redo keep changes made inside a subtree that an edit removes: a child moved out of a column that is then removed returns to the column on undo and leaves again on redo.
+
 ## [0.7.0] - 2026-10-30
 
 ### Added
